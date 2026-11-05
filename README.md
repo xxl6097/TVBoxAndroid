@@ -2,6 +2,17 @@
 
 从 HarmonyOS 原生应用 **TVBoxTV（鸿蒙影视）** 移植到 **Android TV** 平台。
 
+**仓库：** https://github.com/xxl6097/TVBoxAndroid
+**自动构建：** 每次 push 到 `main` 由 GitHub Actions 编译 Debug APK，产物在 Actions 页面 `TVBoxAndroid-debug` 附件里。
+
+```bash
+# 本地构建（需 Android SDK + JDK 17）
+./gradlew assembleDebug
+# 产物：app/build/outputs/apk/debug/app-debug.apk
+```
+
+已产出验证版本：`dist/app-debug.apk`（7.9 MB，debug 签名，minSdk 21）。
+
 ## 项目结构
 
 ```

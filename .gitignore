@@ -33,3 +33,5 @@ local.properties
 build/
 .gradle/
 *.apk
+
+dist/
