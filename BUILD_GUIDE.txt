@@ -1,0 +1,173 @@
+================================================================================
+TVBox Android - 构建指南
+================================================================================
+
+项目路径: /Users/uuxia/WorkBuddy/2026-11-01-12-57-02/TVBoxAndroid/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 快速构建（三步）
+
+1. 检查 Android SDK
+   如果已安装 Android Studio，SDK 位于：
+   /Users/uuxia/Library/Android/sdk
+
+2. 命令行构建
+   cd /Users/uuxia/WorkBuddy/2026-11-01-12-57-02/TVBoxAndroid
+   ./build_apk.sh
+
+3. 安装到设备
+   adb install app/build/outputs/apk/debug/app-debug.apk
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📱 方式一：Android Studio（推荐）
+
+优点：图形界面、自动处理依赖、实时预览
+步骤：
+  1. 打开 Android Studio
+  2. File → Open → 选择 TVBoxAndroid 目录
+  3. 等待 Gradle 同步（首次需 5-10 分钟）
+  4. Build → Build Bundle(s) / APK(s) → Build APK(s)
+  5. 点击 "locate" 打开产物目录
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚡ 方式二：命令行（快速）
+
+使用内置脚本（已自动检测环境）：
+  cd TVBoxAndroid
+  ./build_apk.sh
+
+手动构建：
+  cd TVBoxAndroid
+  
+  # 首次需要下载 Gradle Wrapper
+  gradle wrapper --gradle-version 8.2
+  
+  # 构建 Debug APK
+  ./gradlew assembleDebug
+  
+  # 产物位置
+  app/build/outputs/apk/debug/app-debug.apk
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 构建产物
+
+类型:       Debug APK（开发测试用）
+包名:       com.hong.tvbox
+版本:       1.0.0 (versionCode 1)
+最低 SDK:   API 21 (Android 5.0)
+目标 SDK:   API 34 (Android 14)
+签名:       Android Debug 签名（自动生成）
+大小:       约 5-8 MB
+
+产物路径:
+  app/build/outputs/apk/debug/app-debug.apk
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 环境要求
+
+必需：
+  ✓ JDK 17 或更高版本
+  ✓ Android SDK（API 34）
+  ✓ Gradle 8.2 或更高版本
+
+可选：
+  - Android Studio Hedgehog 或更高版本
+  - Android TV 模拟器（用于测试）
+
+检查命令：
+  java -version           # 检查 JDK
+  gradle --version        # 检查 Gradle
+  adb version             # 检查 ADB
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📲 安装到设备
+
+USB 连接：
+  adb install app/build/outputs/apk/debug/app-debug.apk
+
+无线连接（需先在同一 Wi-Fi）：
+  # 1. 设备开启无线调试（设置 → 关于 → 连点版本号 → 开发者选项 → 无线调试）
+  # 2. 查看 IP 和端口（如 192.168.1.100:5555）
+  # 3. 连接
+  adb connect 192.168.1.100:5555
+  adb install app/build/outputs/apk/debug/app-debug.apk
+
+覆盖安装（保留数据）：
+  adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🐛 常见问题
+
+Q: Gradle 同步失败
+A: 删除缓存重试
+   rm -rf ~/.gradle/caches/
+   ./gradlew clean
+
+Q: SDK 版本不匹配
+A: 安装所需版本
+   $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-34"
+   $ANDROID_HOME/tools/bin/sdkmanager "build-tools;34.0.0"
+
+Q: 找不到 ANDROID_HOME
+A: 设置环境变量（添加到 ~/.zshrc）
+   export ANDROID_HOME=$HOME/Library/Android/sdk
+   export PATH=$PATH:$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools
+
+Q: 构建太慢
+A: 启用并行构建（已在 gradle.properties 配置）
+   org.gradle.parallel=true
+   org.gradle.caching=true
+
+Q: 无法连接 ADB
+A: 重启 ADB 服务
+   adb kill-server
+   adb start-server
+   adb devices
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️  当前状态
+
+✅ 核心协议层：100% 完成
+   - HTTP 客户端（OkHttp）
+   - CMS 协议解析（XML/JSON）
+   - 数据存储（配置/历史/收藏）
+
+✅ 可编译打包：是
+✅ 可安装运行：是
+
+⚠️  UI 层：待实现
+   - 当前只有临时欢迎界面
+   - 无法浏览站源内容
+   - 无法播放视频
+
+下一步开发：
+  1. 实现 Leanback BrowseFragment（站源浏览）
+  2. 集成 ExoPlayer 播放器
+  3. 实现详情页与搜索功能
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 相关文档
+
+README.md           项目概述 + 技术栈
+MIGRATION.md        移植报告 + 对照表
+QUICKSTART.md       快速上手 + 代码示例
+PACKAGE.md          详细打包指南
+PACKAGE_SUMMARY.txt 打包摘要
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+构建时间: 2026-11-05
+移植自: TVBoxTV (HarmonyOS 7.0)
+包名: com.hong.tvbox
+版本: 1.0.0-alpha
+
+================================================================================

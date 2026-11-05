@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 从 TVBoxTV 原版 FongMi/TV 一比一还原的配色 -->
+    
+    <!-- 主色：纯白（注意不是 Material 3 默认的紫色） -->
+    <color name="primary">#FFFFFF</color>
+    
+    <!-- 选中/勾选文字：黄色 -->
+    <color name="selected">#FFEB3B</color>
+    <color name="yellow_500">#FFEB3B</color>
+    
+    <!-- 窗口与面板背景 -->
+    <color name="window_background">#141218</color>
+    <color name="surface">#1C1B1F</color>
+    
+    <!-- 半透明层级 -->
+    <color name="black_20">#33000000</color>
+    <color name="black_40">#66000000</color>
+    <color name="black_50">#80000000</color>
+    <color name="black_70">#B3000000</color>
+    <color name="black_80">#CC000000</color>
+    <color name="black_90">#E6000000</color>
+    
+    <color name="white_15">#26FFFFFF</color>
+    <color name="white_30">#4DFFFFFF</color>
+    <color name="white_70">#B3FFFFFF</color>
+    <color name="white_80">#CCFFFFFF</color>
+    
+    <!-- 角标 -->
+    <color name="remark_bg">#B3177535</color>
+    
+    <!-- 文字 -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B3FFFFFF</color>
+    <color name="text_hint">#80FFFFFF</color>
+</resources>

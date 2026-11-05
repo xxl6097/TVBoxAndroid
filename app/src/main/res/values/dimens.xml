@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 从 FongMi/TV 一比一还原的尺寸 -->
+    
+    <!-- 圆角 -->
+    <dimen name="radius_small">4dp</dimen>
+    <dimen name="radius_large">28dp</dimen>
+    
+    <!-- 间距 -->
+    <dimen name="spacing_small">8dp</dimen>
+    <dimen name="spacing_medium">16dp</dimen>
+    <dimen name="spacing_large">24dp</dimen>
+    
+    <!-- 功能块 -->
+    <dimen name="func_block_size">100dp</dimen>
+    <dimen name="func_icon_size">36dp</dimen>
+    
+    <!-- 卡片 -->
+    <dimen name="card_width">150dp</dimen>
+    <dimen name="card_height">220dp</dimen>
+    <dimen name="card_corner_radius">8dp</dimen>
+    
+    <!-- 文字 -->
+    <dimen name="text_size_tiny">12sp</dimen>
+    <dimen name="text_size_small">14sp</dimen>
+    <dimen name="text_size_normal">16sp</dimen>
+    <dimen name="text_size_large">18sp</dimen>
+    <dimen name="text_size_title">24sp</dimen>
+    
+    <!-- 描边 -->
+    <dimen name="stroke_width">2px</dimen>
+    <dimen name="stroke_width_focus">1.5dp</dimen>
+</resources>

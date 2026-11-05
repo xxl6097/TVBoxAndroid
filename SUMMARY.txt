@@ -1,0 +1,151 @@
+================================================================================
+TVBoxTV (HarmonyOS) → Android TV 移植项目
+================================================================================
+
+项目路径: /Users/uuxia/WorkBuddy/2026-11-01-12-57-02/TVBoxAndroid/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ 已完成模块
+
+核心协议层（100%）
+├─ HttpClient.kt        171 行  HTTP 客户端（OkHttp）
+├─ CmsClient.kt         635 行  CMS 协议解析（XML/JSON）
+└─ Model.kt             147 行  数据模型
+
+数据存储层（100%）
+├─ ConfigStore.kt        98 行  配置管理
+├─ HistoryStore.kt       70 行  历史记录
+└─ FavoriteStore.kt      59 行  收藏管理
+
+配置文件（100%）
+├─ AndroidManifest.xml         Android TV 配置
+├─ build.gradle.kts           依赖管理
+├─ colors.xml                 FongMi/TV 配色方案
+├─ themes.xml                 Material3 主题
+├─ dimens.xml                 原版尺寸还原
+└─ proguard-rules.pro         混淆规则
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚧 待实现模块
+
+UI 层（0%）
+├─ MainActivity           主界面入口
+├─ BrowseFragment         Leanback 浏览页
+├─ DetailActivity         详情页
+├─ PlayerActivity         播放器（ExoPlayer）
+├─ SearchActivity         搜索功能
+└─ SettingsActivity       设置页
+
+功能层（0%）
+├─ ResolveClient          播放地址解析
+├─ LiveClient             直播功能
+└─ JarLoader              爬虫 jar 加载（可选）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 技术栈对照
+
+模块              鸿蒙技术                Android 技术            状态
+─────────────────────────────────────────────────────────────────────────
+HTTP 请求         @ohos.net.http          OkHttp 4.12            ✅
+JSON 解析         手写 parse              Gson 2.10              ✅
+协程              Promise                 Kotlin Coroutines      ✅
+持久化            @ohos.data.preferences  SharedPreferences      ✅
+播放器            AVPlayer                ExoPlayer (Media3)     ⏳
+UI 框架           ArkUI (声明式)          Leanback (命令式)      ⏳
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 核心优势
+
+✓ 完整保留鸿蒙版本的缓存策略（分类 5 分钟 / 列表 90 秒 / 详情 10 分钟）
+✓ XML/JSON/CDATA 解析逻辑 1:1 移植
+✓ 线路拆分与直连判断完全一致
+✓ FongMi/TV 配色与尺寸精确还原
+✓ Android 可支持更多站源（爬虫 jar 可加载）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 文件清单
+
+app/src/main/java/com/hong/tvbox/
+├── core/
+│   ├── HttpClient.kt       HTTP 客户端 + 重定向 + 错误提示
+│   ├── CmsClient.kt        采集站协议 + 缓存 + XML/JSON 解析
+│   └── Model.kt            数据类 + Gson 注解
+├── data/
+│   ├── ConfigStore.kt      配置存储（站源/订阅/直播源）
+│   ├── HistoryStore.kt     观看历史（位置/进度/时间）
+│   └── FavoriteStore.kt    收藏管理（增删查）
+└── ui/                     (待实现)
+
+app/src/main/res/
+├── values/
+│   ├── colors.xml          主色 #FFFFFF / 选中 #FFEB3B / 窗口 #141218
+│   ├── themes.xml          Material3 Dark + Leanback
+│   └── dimens.xml          功能块 100dp / 卡片圆角 8dp / 控制面板 28dp
+└── layout/                 (待实现)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 快速开始
+
+1. 用 Android Studio 打开项目
+   cd TVBoxAndroid
+   open -a "Android Studio" .
+
+2. 同步 Gradle 依赖
+   点击右上角 "Sync Now"
+
+3. 创建 TV 模拟器
+   Tools → Device Manager → Create Virtual Device → TV
+
+4. 下一步：实现 MainActivity
+   参考 QUICKSTART.md 中的示例代码
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📖 文档
+
+README.md       项目概述 + 技术栈 + 移植进度
+MIGRATION.md    详细移植报告 + 对照表 + 实施路径
+QUICKSTART.md   快速上手 + 代码示例 + 常见问题
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏱️ 预估剩余工作量
+
+阶段 1: 最小可播放版本     12 小时
+  - MainActivity + BrowseFragment    4h
+  - DetailActivity                   3h
+  - PlayerActivity (ExoPlayer)       4h
+  - 测试验证                         1h
+
+阶段 2: 完整功能           10 小时
+  - ResolveClient                    2h
+  - SearchActivity                   3h
+  - SettingsActivity                 2h
+  - 历史与收藏 UI                    3h
+
+阶段 3: 高级功能            8 小时
+  - 直播功能                         4h
+  - 爬虫支持 (DexClassLoader)        4h
+
+总计: 30 小时
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+当前状态
+  可编译: ✅ 是
+  可运行: ⚠️ 需要先创建 MainActivity
+  核心层: ✅ 100% 完成
+  UI 层:  ⏳ 0% 待实现
+
+移植完成时间: 2026-11-05
+移植者: WorkBuddy AI
+原项目: TVBoxTV (HarmonyOS 7.0)
+目标平台: Android TV (API 21+)
+
+================================================================================

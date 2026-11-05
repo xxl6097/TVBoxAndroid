@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 基础主题：Material3 Dark + FongMi/TV 配色 -->
+    <style name="Theme.TvBox" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- 主色：纯白（不是默认紫色） -->
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/window_background</item>
+        
+        <!-- 窗口背景 -->
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="colorSurface">@color/surface</item>
+        
+        <!-- 文字颜色 -->
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        
+        <!-- 强制横屏 -->
+        <item name="android:screenOrientation">landscape</item>
+        
+        <!-- 沉浸式 -->
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:fitsSystemWindows">false</item>
+    </style>
+    
+    <!-- Leanback 主题 -->
+    <style name="Theme.TvBox.Leanback" parent="Theme.Leanback">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="colorPrimary">@color/primary</item>
+        <item name="browsePaddingStart">24dp</item>
+        <item name="browsePaddingEnd">24dp</item>
+        <item name="browsePaddingTop">24dp</item>
+        <item name="browsePaddingBottom">24dp</item>
+        <item name="browseRowsMarginTop">16dp</item>
+        <item name="browseRowsMarginStart">0dp</item>
+    </style>
+</resources>

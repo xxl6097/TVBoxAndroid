@@ -1,0 +1,140 @@
+================================================================================
+TVBox Android - 打包摘要
+================================================================================
+
+项目状态: ✅ 可编译 | ⚠️ UI 层待实现
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+构建方式
+
+方式 1: Android Studio（推荐）
+  1. open -a "Android Studio" .
+  2. 等待 Gradle 同步
+  3. Build → Build APK(s)
+  4. 产物：app/build/outputs/apk/debug/app-debug.apk
+
+方式 2: 命令行（快速）
+  ./build_apk.sh
+
+方式 3: Gradle 直接构建
+  ./gradlew assembleDebug
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+文件清单
+
+构建配置
+├─ build.gradle.kts           项目级构建脚本
+├─ settings.gradle.kts         模块配置
+├─ gradle.properties           Gradle 属性
+├─ local.properties            SDK 路径
+└─ app/build.gradle.kts        应用级构建脚本
+
+源代码
+├─ core/                       核心协议层（1003 行）
+│   ├─ HttpClient.kt
+│   ├─ CmsClient.kt
+│   └─ Model.kt
+├─ data/                       数据存储层（227 行）
+│   ├─ ConfigStore.kt
+│   ├─ HistoryStore.kt
+│   └─ FavoriteStore.kt
+└─ ui/                         界面层（1 个临时 Activity）
+    └─ MainActivity.kt         欢迎页面（占位）
+
+资源文件
+├─ AndroidManifest.xml         应用清单
+├─ res/values/colors.xml       FongMi/TV 配色
+├─ res/values/themes.xml       Material3 主题
+├─ res/values/dimens.xml       尺寸定义
+└─ res/values/strings.xml      字符串资源
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+依赖项
+
+核心库
+├─ Kotlin 1.9.20
+├─ Android SDK 34
+└─ AndroidX AppCompat
+
+网络
+├─ OkHttp 4.12.0
+├─ Retrofit 2.9.0
+└─ Gson 2.10.1
+
+播放器（待使用）
+└─ ExoPlayer (Media3) 1.2.0
+
+TV 框架（待使用）
+└─ Leanback 1.2.0-alpha04
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+当前构建产物
+
+类型: Debug APK
+签名: Android Debug 签名（自动生成）
+包名: com.hong.tvbox
+版本: 1.0.0 (versionCode 1)
+最低 SDK: API 21 (Android 5.0)
+目标 SDK: API 34 (Android 14)
+
+预估大小: ~5-8 MB（含所有依赖）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+安装方式
+
+USB 连接
+  adb install app/build/outputs/apk/debug/app-debug.apk
+
+无线 ADB（需先配对）
+  adb connect 192.168.1.x:5555
+  adb install app/build/outputs/apk/debug/app-debug.apk
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+已知限制
+
+✅ 核心协议层完整可用
+✅ 数据存储层完整可用
+⚠️  只有临时欢迎界面
+⚠️  无法浏览站源内容
+⚠️  无法播放视频
+⚠️  无搜索、历史、收藏 UI
+
+需要继续实现：
+  1. MainActivity（完整版）
+  2. BrowseFragment（站源浏览）
+  3. DetailActivity（详情页）
+  4. PlayerActivity（播放器）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+下一步
+
+开发环境
+  1. 安装 Android Studio Hedgehog 或更高版本
+  2. 配置 Android SDK（API 34）
+  3. 创建 Android TV 模拟器
+
+实现 UI
+  1. 参考 QUICKSTART.md 中的示例代码
+  2. 创建 Leanback BrowseFragment
+  3. 集成 ExoPlayer 播放器
+  4. 实现详情页与搜索功能
+
+测试
+  1. 导入 TVBox 配置 JSON
+  2. 测试站源列表加载
+  3. 测试视频播放（直连 m3u8）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+构建时间: 2026-11-05
+移植者: WorkBuddy AI
+原项目: TVBoxTV (HarmonyOS 7.0)
+
+================================================================================

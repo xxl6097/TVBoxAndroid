@@ -1,0 +1,158 @@
+package com.hong.tvbox.core
+
+import com.google.gson.annotations.SerializedName
+
+/**
+ * 数据模型 - 从 ArkTS Model.ets 移植
+ */
+
+// ============ 站源配置 ============
+
+data class Site(
+    @SerializedName("key") var key: String = "",
+    @SerializedName("name") var name: String = "",
+    @SerializedName("type") var type: Int = 1,  // 0=XML, 1=JSON, 3=爬虫, 4=JSON(多层data)
+    @SerializedName("api") var api: String = "",
+    @SerializedName("searchable") var searchable: Int = 1,
+    @SerializedName("quickSearch") var quickSearch: Int = 0,
+    @SerializedName("ext") var ext: String = "",
+    var usable: Boolean = true,      // type=3 爬虫标记不可用
+    var reason: String = ""
+)
+
+data class Config(
+    @SerializedName("sites") var sites: List<Site> = emptyList(),
+    @SerializedName("parses") var parses: List<Parse> = emptyList(),
+    @SerializedName("lives") var lives: List<LiveSource> = emptyList()
+)
+
+data class Parse(
+    @SerializedName("name") var name: String = "",
+    @SerializedName("type") var type: Int = 1,  // 只支持 type=1 的 JSON 解析
+    @SerializedName("url") var url: String = ""
+)
+
+data class LiveSource(
+    @SerializedName("name") var name: String = "",
+    @SerializedName("url") var url: String = ""
+)
+
+// ============ 分类 ============
+
+data class Category(
+    var id: String = "",
+    var name: String = "",
+    var pid: String = ""  // 父分类 ID，空表示顶级
+)
+
+// ============ 影片 ============
+
+data class Vod(
+    var id: String = "",
+    var name: String = "",
+    var pic: String = "",
+    var remark: String = "",
+    var year: String = "",
+    var area: String = "",
+    var actor: String = "",
+    var director: String = "",
+    var content: String = "",
+    var typeName: String = "",
+    var from: String = "",          // 线路名，$$$ 分隔
+    var playUrl: String = "",       // 播放地址，$$$ 分隔线路，# 分隔剧集
+    var siteKey: String = "",
+    var siteName: String = ""
+)
+
+data class VodPage(
+    var page: Int = 1,
+    var pageCount: Int = 1,
+    var total: Int = 0,
+    var items: MutableList<Vod> = mutableListOf()
+)
+
+// ============ 线路与剧集 ============
+
+data class Episode(
+    var name: String = "",
+    var url: String = ""
+)
+
+data class Line(
+    var name: String = "",
+    var direct: Boolean = false,    // 是否可直连播放
+    var eps: MutableList<Episode> = mutableListOf()
+)
+
+// ============ 筛选 ============
+
+data class FilterValue(
+    var n: String = "",
+    var v: String = ""
+)
+
+data class FilterGroup(
+    var key: String = "",
+    var name: String = "",
+    var values: MutableList<FilterValue> = mutableListOf()
+)
+
+// ============ JSON 响应结构 ============
+
+data class JResp(
+    @SerializedName("code") var code: Int? = null,
+    @SerializedName("page") var page: Int? = null,
+    @SerializedName("pagecount") var pagecount: Int? = null,
+    @SerializedName("total") var total: Int? = null,
+    @SerializedName("list") var list: List<JVod>? = null,
+    @SerializedName("class") var catList: List<JClass>? = null,
+    @SerializedName("data") var data: JResp? = null  // type=4 多包一层
+)
+
+data class JVod(
+    @SerializedName("vod_id") var vod_id: Any? = null,
+    @SerializedName("vod_name") var vod_name: String? = null,
+    @SerializedName("vod_pic") var vod_pic: String? = null,
+    @SerializedName("vod_remarks") var vod_remarks: String? = null,
+    @SerializedName("vod_year") var vod_year: String? = null,
+    @SerializedName("vod_area") var vod_area: String? = null,
+    @SerializedName("vod_actor") var vod_actor: String? = null,
+    @SerializedName("vod_director") var vod_director: String? = null,
+    @SerializedName("vod_content") var vod_content: String? = null,
+    @SerializedName("vod_blurb") var vod_blurb: String? = null,
+    @SerializedName("type_name") var type_name: String? = null,
+    @SerializedName("vod_play_from") var vod_play_from: String? = null,
+    @SerializedName("vod_play_url") var vod_play_url: String? = null,
+    @SerializedName("tid") var tid: Any? = null
+)
+
+data class JClass(
+    @SerializedName("type_id") var type_id: Any? = null,
+    @SerializedName("type_name") var type_name: String? = null,
+    @SerializedName("type_pid") var type_pid: Int? = null
+)
+
+// ============ 历史记录 ============
+
+data class History(
+    var vodId: String = "",
+    var siteKey: String = "",
+    var vodName: String = "",
+    var vodPic: String = "",
+    var lineIndex: Int = 0,
+    var episodeIndex: Int = 0,
+    var episodeName: String = "",
+    var position: Long = 0,      // 播放位置（毫秒）
+    var duration: Long = 0,      // 总时长（毫秒）
+    var updatedAt: Long = 0
+)
+
+// ============ 收藏 ============
+
+data class Favorite(
+    var vodId: String = "",
+    var siteKey: String = "",
+    var vodName: String = "",
+    var vodPic: String = "",
+    var createdAt: Long = 0
+)
