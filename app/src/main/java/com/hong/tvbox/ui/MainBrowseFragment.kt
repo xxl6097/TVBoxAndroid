@@ -78,6 +78,7 @@ class MainBrowseFragment : BrowseFragment() {
 
     private fun addFunctionRow() {
         val funcs = listOf(
+            FuncItem("点播", "vod"),
             FuncItem("搜索", "search"),
             FuncItem("收藏", "favorites"),
             FuncItem("历史", "history"),
@@ -165,20 +166,13 @@ class MainBrowseFragment : BrowseFragment() {
         ) {
             when (item) {
                 is FuncItem -> {
+                    val ctx = requireContext()
                     when (item.action) {
-                        "search" -> startActivity(Intent(requireContext(), SearchActivity::class.java))
-                        "favorites" -> {
-                            // 收藏列表（暂时用 Toast 提示）
-                            val favs = favoriteStore.getAll()
-                            Toast.makeText(requireContext(),
-                                "收藏 ${favs.size} 条", Toast.LENGTH_SHORT).show()
-                        }
-                        "history" -> {
-                            val hist = historyStore.getAll()
-                            Toast.makeText(requireContext(),
-                                "历史 ${hist.size} 条", Toast.LENGTH_SHORT).show()
-                        }
-                        "settings" -> SettingsActivity.start(requireContext())
+                        "vod" -> VodBrowseActivity.start(ctx)
+                        "search" -> startActivity(Intent(ctx, SearchActivity::class.java))
+                        "favorites" -> FavoritesActivity.start(ctx)
+                        "history" -> HistoryActivity.start(ctx)
+                        "settings" -> SettingsActivity.start(ctx)
                     }
                 }
                 is Vod -> {
@@ -186,10 +180,6 @@ class MainBrowseFragment : BrowseFragment() {
                 }
             }
         }
-    }
-
-    private fun Toast(context: android.content.Context, msg: String) {
-        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
     }
 }
 

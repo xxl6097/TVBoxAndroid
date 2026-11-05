@@ -50,6 +50,8 @@ class PlayerActivity : AppCompatActivity() {
     private var resolvedUrl = ""
     private var resolvedVia = ""
     private var resolvedHeaders: Map<String, String> = emptyMap()
+    /** 续播目标位置（毫秒），0 表示从头播 */
+    private var pendingSeek: Long = 0L
 
     // UI 控件
     private lateinit var loadingView: View
@@ -81,6 +83,7 @@ class PlayerActivity : AppCompatActivity() {
         // 所有剧集 URL 和名称用两个并行数组传递
         const val EXTRA_EP_URLS = "ep_urls"
         const val EXTRA_EP_NAMES = "ep_names"
+        const val EXTRA_START_POS = "start_pos"
 
         fun start(
             context: Context,
@@ -91,7 +94,8 @@ class PlayerActivity : AppCompatActivity() {
             allEpisodes: List<Episode>,
             episodeIndex: Int,
             isDirect: Boolean,
-            siteApi: String
+            siteApi: String,
+            startPosition: Long = 0L
         ) {
             val intent = Intent(context, PlayerActivity::class.java).apply {
                 putExtra(EXTRA_VOD_ID, vodId)
@@ -103,6 +107,7 @@ class PlayerActivity : AppCompatActivity() {
                 putExtra(EXTRA_SITE_API, siteApi)
                 putExtra(EXTRA_EP_URLS, allEpisodes.map { it.url }.toTypedArray())
                 putExtra(EXTRA_EP_NAMES, allEpisodes.map { it.name }.toTypedArray())
+                putExtra(EXTRA_START_POS, startPosition)
             }
             context.startActivity(intent)
         }
@@ -125,6 +130,7 @@ class PlayerActivity : AppCompatActivity() {
         currentEpisodeIndex = intent.getIntExtra(EXTRA_EPISODE_INDEX, 0)
         isDirectLine = intent.getBooleanExtra(EXTRA_IS_DIRECT, false)
         siteApi = intent.getStringExtra(EXTRA_SITE_API) ?: ""
+        pendingSeek = intent.getLongExtra(EXTRA_START_POS, 0L)
 
         val epUrls = intent.getStringArrayExtra(EXTRA_EP_URLS) ?: arrayOf()
         val epNames = intent.getStringArrayExtra(EXTRA_EP_NAMES) ?: arrayOf()
@@ -371,10 +377,19 @@ class PlayerActivity : AppCompatActivity() {
                             isPrepared = true
                             isBuffering = false
                             loadingView.visibility = View.GONE
-                            // 如果有历史进度，seek 过去
-                            val history = historyStore.get(vodId, siteKey)
-                            if (history != null && history.episodeIndex == currentEpisodeIndex && history.position > 0) {
-                                p.seekTo(history.position)
+                            // 续播定位：优先用调用方传入的位置，其次读本地历史
+                            val target = when {
+                                pendingSeek > 0 -> pendingSeek
+                                else -> {
+                                    val history = historyStore.get(vodId, siteKey)
+                                    if (history != null && history.episodeIndex == currentEpisodeIndex) {
+                                        history.position
+                                    } else 0L
+                                }
+                            }
+                            if (target > 0) {
+                                p.seekTo(target)
+                                pendingSeek = 0L
                             }
                             p.play()
                             isPlaying = true

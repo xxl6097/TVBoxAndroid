@@ -159,7 +159,7 @@ class CmsClient(private val site: Site) {
             }.filter { it.eps.isNotEmpty() }
         }
         
-        private fun isDirect(url: String): Boolean {
+        fun isDirect(url: String): Boolean {
             val u = url.lowercase()
             return u.contains(".m3u8") || u.contains(".mp4") || u.contains(".flv") ||
                    u.contains(".mkv") || u.contains(".ts") || u.contains(".m4v")

@@ -54,5 +54,23 @@
             android:screenOrientation="landscape"
             android:configChanges="keyboard|keyboardHidden|navigation|screenSize|orientation" />
 
+        <activity
+            android:name=".ui.VodBrowseActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|screenSize|orientation" />
+
+        <activity
+            android:name=".ui.FavoritesActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|screenSize|orientation" />
+
+        <activity
+            android:name=".ui.HistoryActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|screenSize|orientation" />
+
     </application>
 </manifest>

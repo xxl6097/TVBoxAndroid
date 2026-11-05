@@ -294,7 +294,6 @@ class SettingsActivity : AppCompatActivity() {
                         else -> Color.WHITE
                     }
                 )
-                layoutWeight(1f)
             }
             row.addView(nameView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
@@ -460,9 +459,6 @@ class SettingsActivity : AppCompatActivity() {
         return (value * resources.displayMetrics.density + 0.5f).toInt()
     }
 
-    private fun View.layoutWeight(weight: Float) {
-        // 辅助方法，不做任何事（layoutWeight 需在 LayoutParams 中设置）
-    }
 }
 
 // 扩展 ConfigStore，支持完整的配置加载

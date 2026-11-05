@@ -47,6 +47,7 @@ class DetailActivity : AppCompatActivity() {
     private lateinit var linesContainer: LinearLayout
     private lateinit var episodesLabel: TextView
     private lateinit var episodesGrid: GridLayout
+    private lateinit var bodyRowView: LinearLayout
 
     private var fullIntro = false
 
@@ -146,6 +147,7 @@ class DetailActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             visibility = View.GONE
         }
+        bodyRowView = bodyRow
 
         // 左：海报
         val posterCol = LinearLayout(this).apply {
@@ -322,7 +324,7 @@ class DetailActivity : AppCompatActivity() {
         }
 
         // 显示主体
-        scrollView.findViewWithTag<View>("bodyRow")?.visibility = View.VISIBLE
+        bodyRowView.visibility = View.VISIBLE
     }
 
     private fun rebuildLinesUI() {

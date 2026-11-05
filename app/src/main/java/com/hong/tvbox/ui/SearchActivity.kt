@@ -186,6 +186,7 @@ class SearchActivity : AppCompatActivity() {
             sites.chunked(6).forEach { batch ->
                 if (myGen != searchGen) return@launch
 
+                // 每个站源一个任务，索引与 batch 对齐（不能用 sites.indexOf，跨批次会错位）
                 val tasks = batch.map { site ->
                     async {
                         try {
@@ -196,11 +197,11 @@ class SearchActivity : AppCompatActivity() {
                     }
                 }
 
-                tasks.forEach { task ->
+                tasks.forEachIndexed { i, task ->
                     val list = task.await()
                     if (list.isNotEmpty()) {
                         found++
-                        addResultGroup(sites[tasks.indexOf(task)], list)
+                        addResultGroup(batch[i], list)
                     }
                 }
 
