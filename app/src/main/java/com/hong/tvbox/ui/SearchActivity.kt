@@ -172,7 +172,7 @@ class SearchActivity : AppCompatActivity() {
         searchButton.isEnabled = false
 
         lifecycleScope.launch {
-            val sites = configStore.getEnabledSiteList().filter { it.searchable }.take(18)
+            val sites = configStore.getEnabledSiteList().filter { it.searchable == 1 }.take(18)
             if (sites.isEmpty()) {
                 isSearching = false
                 statusView.text = "没有启用任何可搜索的站源"

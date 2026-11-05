@@ -227,9 +227,10 @@ class CmsClient(private val site: Site) {
             }
         }
         
-        if (out.isEmpty() && root.list != null) {
+        val jList = root.list
+        if (out.isEmpty() && jList != null) {
             val seen = mutableSetOf<String>()
-            root.list.forEach { jv ->
+            jList.forEach { jv ->
                 val tid = jv.tid?.toString() ?: ""
                 val tn = jv.type_name?.trim() ?: ""
                 if (tid.isNotEmpty() && tn.isNotEmpty() && !seen.contains(tid)) {

@@ -6,7 +6,7 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.TextView
-import androidx.leanback.app.BrowseFragment
+import androidx.leanback.app.BrowseSupportFragment
 import androidx.leanback.widget.*
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
  * 主浏览页 - 移植自 Home.ets
  * 结构：顶栏 + 功能行（点播/搜索/收藏/历史/设置）+ 站源内容行
  */
-class MainBrowseFragment : BrowseFragment() {
+class MainBrowseFragment : BrowseSupportFragment() {
 
     private lateinit var configStore: ConfigStore
     private lateinit var favoriteStore: FavoriteStore
@@ -204,8 +204,8 @@ class FuncPresenter : Presenter() {
         return ViewHolder(view)
     }
 
-    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
-        (viewHolder.view as TextView).text = (item as FuncItem).label
+    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any?) {
+        (viewHolder.view as TextView).text = (item as? FuncItem)?.label ?: ""
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {}
@@ -230,8 +230,8 @@ class VodCardPresenter : Presenter() {
         return ViewHolder(cardView)
     }
 
-    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
-        val vod = item as Vod
+    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any?) {
+        val vod = item as? Vod ?: return
         val cardView = viewHolder.view as ImageCardView
 
         cardView.titleText = vod.name
@@ -240,10 +240,13 @@ class VodCardPresenter : Presenter() {
         // 使用 Glide 加载海报
         if (vod.pic.isNotEmpty()) {
             try {
-                Glide.with(cardView.context)
-                    .load(vod.pic)
-                    .centerCrop()
-                    .into(cardView.mainImageView)
+                val target = cardView.mainImageView
+                if (target != null) {
+                    Glide.with(cardView.context)
+                        .load(vod.pic)
+                        .centerCrop()
+                        .into(target)
+                }
             } catch (e: Exception) {
                 // 图片加载失败，显示占位
             }
@@ -270,8 +273,8 @@ class StringPresenter : Presenter() {
         return ViewHolder(view)
     }
 
-    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
-        (viewHolder.view as TextView).text = item.toString()
+    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any?) {
+        (viewHolder.view as TextView).text = item?.toString() ?: ""
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {}

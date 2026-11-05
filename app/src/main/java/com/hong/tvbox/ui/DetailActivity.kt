@@ -180,7 +180,7 @@ class DetailActivity : AppCompatActivity() {
         contentView = TextView(this).apply {
             textSize = 16f
             setTextColor(Color.parseColor("#B3FFFFFF"))
-            lineSpacingExtra = 6f
+            setLineSpacing(dp(4).toFloat(), 1f)
             setPadding(0, dp(10), 0, 0)
             maxLines = 3
             ellipsize = android.text.TextUtils.TruncateAt.END
