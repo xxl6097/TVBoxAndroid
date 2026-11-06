@@ -128,7 +128,8 @@ data class WebdavEntry(
     var name: String = "",
     var isDir: Boolean = false,
     var size: Long = 0,
-    var mtime: String = ""
+    var mtime: String = "",
+    var contentType: String = "" // 服务端给的 getcontenttype，形如 video/mp4
 )
 
 data class Line(

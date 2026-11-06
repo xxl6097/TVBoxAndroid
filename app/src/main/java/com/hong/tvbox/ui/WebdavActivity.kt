@@ -354,7 +354,7 @@ class WebdavActivity : AppCompatActivity() {
             try {
                 val entries = WebdavClient.list(src, path)
                 val dirs = entries.filter { it.isDir }
-                val videos = entries.filter { !it.isDir && WebdavClient.isVideo(it.name) }
+                val videos = entries.filter { WebdavClient.isPlayable(it) }
                 val images = entries.filter { !it.isDir && WebdavClient.isImage(it.name) }
 
                 // 封面索引：同名图片优先（xxx.mp4 ↔ xxx.jpg）

@@ -9,9 +9,11 @@ import org.junit.Test
  * WebDAV 目录解析测试。
  *
  * 这块逻辑踩过两个真实坑，都来自服务端实现不规范：
- *  1. 极空间对**所有** href 都加尾斜杠（文件也加），只看斜杠会把 mp4 判成文件夹；
- *  2. 极空间对文件也返回 <collection/> 标签，只看标签同样误判。
- * 所以判断必须按 contentlength → 斜杠 → collection 的顺序来，这里把三种风格都固化下来。
+ *  1. 极空间对**所有** href 都加尾斜杠（目录也加、文件也加），只看斜杠会误判；
+ *  2. 极空间把「迅雷下载」里的影片目录也报成 collection 且不带长度，
+ *     名字还叫 `xxx.mp4`，只按扩展名判断会把目录当影片播。
+ * 结论：以服务端元数据为准（Content-Type → Content-Length → 斜杠/collection），
+ * 扩展名只在没有元数据时兜底。
  */
 class WebdavClientTest {
 
@@ -73,7 +75,7 @@ class WebdavClientTest {
         </d:multistatus>
     """.trimIndent()
 
-    /** 极空间真实响应（2026-11 抓取）：所有条目都是 collection、都没有 contentlength、文件 href 带斜杠 */
+    /** 极空间真实响应（2026-11 抓取）：注意 `xxx.mp4/` 其实是目录，真正能播的文件没有后缀 */
     private val zspaceRealXml = """
         <?xml version="1.0" encoding="UTF-8"?>
         <D:multistatus xmlns:D="DAV:">
@@ -89,6 +91,15 @@ class WebdavClientTest {
             <D:propstat><D:prop>
               <D:displayname>凡人修仙传重返天南06.mp4</D:displayname>
               <D:resourcetype><D:collection xmlns:D="DAV:"/></D:resourcetype>
+            </D:prop></D:propstat>
+          </D:response>
+          <D:response>
+            <D:href>/dav/%E8%BF%85%E9%9B%B7%E4%B8%8B%E8%BD%BD/%E7%94%B5%E5%BD%B1/%E5%BC%82%E6%98%9F%E6%88%98%E5%A2%83%20Atlas</D:href>
+            <D:propstat><D:prop>
+              <D:displayname>异星战境 Atlas</D:displayname>
+              <D:resourcetype/>
+              <D:getcontentlength>2238503251</D:getcontentlength>
+              <D:getcontenttype>video/mp4</D:getcontenttype>
             </D:prop></D:propstat>
           </D:response>
         </D:multistatus>
@@ -131,17 +142,22 @@ class WebdavClientTest {
     }
 
     @Test
-    fun `极空间真实响应 - 全是collection靠扩展名识别文件`() {
-        // selfPath 换成真实目录，避免自身条目被过滤掉后拿不到数据
-        val list = WebdavClient.parse(
-            zspaceRealXml,
-            "/dav/迅雷下载/电影"
-        )
+    fun `极空间真实响应 - mp4后缀的目录与无后缀的视频`() {
+        // 真实抓包的结论：`xxx.mp4/` 是目录（collection + 无长度 + 带斜杠），
+        // 「异星战境 Atlas」才是真文件（video/mp4，2.2GB，没有后缀）。
+        val list = WebdavClient.parse(zspaceRealXml, "/dav/迅雷下载/电影")
 
-        assertTrue("解析结果不应为空", list.isNotEmpty())
+        val folder = list.first { it.name == "凡人修仙传重返天南06.mp4" }
+        assertTrue("带 .mp4 后缀但标了 collection + 尾斜杠，应视为目录", folder.isDir)
 
-        val file = list.first { it.name == "凡人修仙传重返天南06.mp4" }
-        assertFalse("mp4 必须是文件，否则点进去是空目录", file.isDir)
+        val movie = list.first { it.name == "异星战境 Atlas" }
+        assertFalse("有长度 + video/mp4 应是文件", movie.isDir)
+        assertEquals(2238503251L, movie.size)
+        assertEquals("video/mp4", movie.contentType)
+
+        // 无后缀但 Content-Type 是视频，必须能播
+        assertTrue("无后缀的视频应可播放", WebdavClient.isPlayable(movie))
+        assertFalse("目录不可播放", WebdavClient.isPlayable(folder))
     }
 
     @Test

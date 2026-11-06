@@ -26,6 +26,19 @@ object WebdavClient {
         return ext.isNotEmpty() && VIDEO_EXT.contains(ext)
     }
 
+    /**
+     * 这个条目能不能播。
+     *
+     * 不能只看扩展名：真实极空间里有 2.2GB 的影片叫「异星战境 Atlas」（没有后缀），
+     * 而几个叫 `xxx.mp4` 的其实是目录。服务端给了 Content-Type 就以它为准。
+     */
+    fun isPlayable(e: WebdavEntry): Boolean {
+        if (e.isDir) return false
+        return isVideo(e.name) ||
+            e.contentType.startsWith("video/") ||
+            e.contentType.startsWith("audio/")
+    }
+
     /** 图片文件（用作海报/封面） */
     fun isImage(name: String): Boolean {
         val ext = name.substringAfterLast('.', "").lowercase()
@@ -236,11 +249,6 @@ object WebdavClient {
             .findAll(xml)
             .toList()
 
-        // 这份响应是否遵循「目录 href 带斜杠」的规范：遵循则用它判断目录，最可靠
-        val slashStyleHref = blocks.any { m ->
-            tag(m.value, "href").endsWith("/")
-        }
-
         blocks.forEach { m ->
             val b = m.value
 
@@ -254,26 +262,27 @@ object WebdavClient {
             val normalized = decoded.trimEnd('/')
             if (normalized == current || normalized.isEmpty()) return@forEach
 
-            // 目录判定优先看 href 是否以 "/" 结尾（RFC 4918 要求 collection 的 href 带斜杠）。
-            // 只靠 <collection/> 标签会误判：部分服务端（如极空间）对文件也带这个标签，
-            // 结果 mp4 全被当成文件夹、点进去是空目录。
-            // 只有整份响应都没有斜杠风格的 href 时，才退回标签判断。
-            val name = decoded.trimEnd('/').substringAfterLast('/')
+            val name = normalized.substringAfterLast('/')
             if (name.isEmpty()) return@forEach
 
-            // 目录判定（按可靠性排序，各家实现差异很大）：
-            // 1) getcontentlength > 0 → 文件
-            // 2) 名字是媒体扩展名 → 文件
-            //    极空间对所有条目都返回 <collection/>、都不给 contentlength、
-            //    文件 href 还带尾斜杠，只能靠扩展名区分；不加这条会把 mp4 全判成文件夹
-            // 3) href 带尾斜杠 → 目录（RFC 4918）
-            // 4) 兜底看 resourcetype
+            // 目录判定（以服务端元数据为准，扩展名只作兜底）：
+            //
+            // 真实极空间的响应（2026-11 抓包）给了个反直觉的事实：
+            //   带 .mp4 后缀的那些条目其实是**目录**（collection、无长度、href 带斜杠），
+            //   真正能播的文件反而没有扩展名（如「异星战境 Atlas」，2.2GB、video/mp4）。
+            // 所以不能用扩展名判断「是不是文件」，否则会把目录当影片播、把真文件过滤掉。
             val len = tag(b, "getcontentlength").toLongOrNull() ?: -1L
+            val ct = tag(b, "getcontenttype").lowercase()
+            val isCollection = b.contains(":collection") || b.contains("<collection")
             val isDir = when {
+                // 明确给了音视频/图片类型 → 文件
+                ct.startsWith("video/") || ct.startsWith("audio/") || ct.startsWith("image/") -> false
+                // 有长度 → 文件
                 len > 0 -> false
-                isVideo(name) || isImage(name) -> false
-                slashStyleHref -> decoded.endsWith("/")
-                else -> b.contains(":collection") || b.contains("<collection")
+                // href 带斜杠或标了 collection → 目录
+                decoded.endsWith("/") -> true
+                isCollection -> true
+                else -> false
             }
 
             val size = tag(b, "getcontentlength").toLongOrNull() ?: 0L
@@ -285,7 +294,8 @@ object WebdavClient {
                     name = name,
                     isDir = isDir,
                     size = size,
-                    mtime = mtime
+                    mtime = mtime,
+                    contentType = ct
                 )
             )
         }
