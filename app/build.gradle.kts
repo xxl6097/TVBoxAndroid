@@ -33,6 +33,20 @@ android {
         ?: System.getenv("KEY_PASSWORD")
 
     signingConfigs {
+        /**
+         * 固定 debug 签名。
+         *
+         * CI 每次构建都会临时生成 ~/.android/debug.keystore，导致每次出的包签名都不同，
+         * 用户（和自己测试）无法覆盖安装，只能先卸载。仓库里放一个固定的 debug
+         * 密钥（口令都是 android，公开无风险）即可保证同一签名。
+         */
+        create("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+
         if (ksPath != null && File(ksPath).exists() && ksPass != null && ksAlias != null) {
             create("release") {
                 storeFile = File(ksPath)
@@ -56,6 +70,7 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

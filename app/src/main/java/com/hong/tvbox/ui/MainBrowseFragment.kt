@@ -40,10 +40,12 @@ class MainBrowseFragment : BrowseSupportFragment() {
         historyStore = HistoryStore(requireContext())
 
         title = "鸿蒙影视"
-        // 我们不用左侧 headers 导航，全部内容都在行里。
-        // 之前设成 HEADERS_ENABLED，首页左边会空出一条白色竖栏，很难看。
-        headersState = HEADERS_HIDDEN
-        brandColor = Color.parseColor("#FFFFFF")
+        // 左侧 headers 区必须保留（HIDDEN 会让整个内容区不渲染），
+        // 但它的底色由 brandColor 决定：之前设成白色，整条竖栏是白的、
+        // 白色标题也看不见。改成和背景同色，视觉上就"消失"了。
+        headersState = HEADERS_ENABLED
+        isHeadersTransitionOnBackEnabled = true
+        brandColor = Color.parseColor("#141218")
         searchAffordanceColor = Color.parseColor("#FFEB3B")
         adapter = rowsAdapter
 

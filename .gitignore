@@ -29,11 +29,12 @@ Thumbs.db
 # Keystore
 *.jks
 *.keystore
+!debug.keystore
+
 local.properties
 build/
 .gradle/
 *.apk
 
 dist/
-*.jks
-*.keystore
+
