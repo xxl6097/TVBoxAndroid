@@ -72,6 +72,16 @@ object WebdavClient {
 
         val xml = HttpClient.propfind(url, headers, 15000)
 
+        // 排障用：把最近一次 PROPFIND 响应落到应用外部目录，
+        // 各家 WebDAV 实现的字段差异很大（极空间对文件也带斜杠和 collection），
+        // 出问题时 adb pull 出来看一眼就能定位，比猜快得多。
+        runCatching {
+            val dir = com.hong.tvbox.TvBoxApp.appContext.getExternalFilesDir(null)
+            if (dir != null) {
+                java.io.File(dir, "propfind_last.xml").writeText(xml)
+            }
+        }
+
         // 自身条目要按**绝对路径**比对：href 是 "/dav/电影/"，而我们手上的 path 是相对路径 "电影"，
         // 拿相对路径去比永远不等，根目录就会把自己（dav）也列出来
         val selfPath = try {
