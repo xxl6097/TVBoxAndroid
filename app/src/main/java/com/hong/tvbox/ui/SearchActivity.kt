@@ -207,7 +207,11 @@ class SearchActivity : AppCompatActivity() {
 
             isSearching = false
             searchButton.isEnabled = true
-            statusView.text = if (found > 0) "共命中 $found 个站源" else "没有搜到结果"
+            statusView.text = if (found > 0) {
+                "共命中 $found 个站源"
+            } else {
+                "没有搜到结果，试试更短的片名，或换一个字再搜"
+            }
         }
     }
 

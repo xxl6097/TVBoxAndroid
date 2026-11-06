@@ -254,8 +254,55 @@ class SettingsActivity : AppCompatActivity() {
         }
         root.addView(clearHistBtn)
 
+        // 上次崩溃日志（有才显示，方便盒子上排障）
+        val crash = com.hong.tvbox.TvBoxApp.readCrash(this)
+        if (crash.isNotEmpty()) {
+            root.addView(Button(this).apply {
+                text = "查看上次崩溃日志"
+                setOnClickListener { showCrashLog(crash) }
+            })
+        }
+
+        // 版本信息页脚
+        val version = try {
+            val info = packageManager.getPackageInfo(packageName, 0)
+            "v${info.versionName}"
+        } catch (e: Exception) {
+            "v1.0.0"
+        }
+        root.addView(TextView(this).apply {
+            text = "鸿蒙影视 Android TV 版 $version"
+            textSize = 13f
+            setTextColor(Color.parseColor("#66FFFFFF"))
+            gravity = Gravity.CENTER
+            setPadding(0, dp(24), 0, dp(8))
+        })
+
         scroll.addView(root)
         setContentView(scroll)
+    }
+
+    /** 崩溃日志弹窗：可滚动查看，附清除按钮 */
+    private fun showCrashLog(log: String) {
+        val scroll = ScrollView(this)
+        val tv = TextView(this).apply {
+            text = log
+            textSize = 12f
+            setTextColor(Color.parseColor("#DDDDDD"))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+        scroll.addView(tv)
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("上次崩溃日志")
+            .setView(scroll)
+            .setPositiveButton("关闭") { _, _ -> }
+            .setNegativeButton("清除") { _, _ ->
+                com.hong.tvbox.TvBoxApp.clearCrash(this)
+                Toast.makeText(this, "已清除", Toast.LENGTH_SHORT).show()
+            }
+            .show()
     }
 
     /** 手机扫码录入：起一个局域网小服务 + 显示二维码，离开对话框即停止服务 */

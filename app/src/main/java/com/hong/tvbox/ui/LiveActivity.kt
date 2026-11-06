@@ -182,12 +182,37 @@ class LiveActivity : AppCompatActivity() {
                 root = tree
                 current = tree
                 stack.clear()
+
+                // 恢复上次停留的分组：常看 CCTV 的人不必每次都从头点
+                restorePath(tree)
+
                 renderGroups()
                 renderChannels()
             } catch (e: Exception) {
                 statusView.text = "直播源加载失败：${e.message}"
             }
         }
+    }
+
+    /** 按保存的路径逐级下钻；中途对不上就停在能到达的那一级 */
+    private fun restorePath(tree: LiveDir) {
+        val saved = configStore.getLastLivePath()
+        if (saved.isEmpty()) return
+
+        var node = tree
+        saved.forEach { name ->
+            val next = node.children.firstOrNull { it.name == name } ?: return
+            stack.addLast(node)
+            node = next
+        }
+        current = node
+    }
+
+    private fun rememberPath() {
+        val parts = mutableListOf<String>()
+        stack.forEach { if (it.name != "全部") parts.add(it.name) }
+        current?.let { if (it.name != "全部") parts.add(it.name) }
+        configStore.saveLastLivePath(parts)
     }
 
     private fun renderGroups() {
@@ -263,6 +288,9 @@ class LiveActivity : AppCompatActivity() {
         parts.add(node.name)
         val path = parts.filter { it.isNotEmpty() && it != "全部" }.joinToString(" › ")
         pathView.text = if (path.isEmpty()) "全部频道 · ${node.count} 台" else "$path · ${node.count} 台"
+
+        // 每次导航顺手记一下，下次进来直接回到这里
+        rememberPath()
     }
 
     private fun renderChannels() {

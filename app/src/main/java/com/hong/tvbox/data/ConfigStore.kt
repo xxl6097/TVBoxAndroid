@@ -31,6 +31,7 @@ class ConfigStore(context: Context) {
         private const val KEY_CRAWL_SUMMARY = "crawl_summary"
         private const val KEY_KEYWORDS = "search_keywords"
         private const val KEY_WEBDAV_LIST = "webdav_list"
+        private const val KEY_LIVE_PATH = "live_path"
         private const val KEY_LAST_UPDATE = "last_update"
     }
     
@@ -182,6 +183,18 @@ class ConfigStore(context: Context) {
     /** 订阅里带的直播源名（设置页展示用） */
     fun getSubLiveName(url: String): String {
         return getSubLives().firstOrNull { it.url == url }?.name ?: ""
+    }
+
+    // ---------- 直播分组记忆 ----------
+
+    /** 上次停留的直播分组路径（用不可见字符分隔，分组名里可能有 / ） */
+    fun getLastLivePath(): List<String> {
+        val raw = prefs.getString(KEY_LIVE_PATH, "") ?: ""
+        return if (raw.isEmpty()) emptyList() else raw.split("\u0001").filter { it.isNotEmpty() }
+    }
+
+    fun saveLastLivePath(parts: List<String>) {
+        prefs.edit().putString(KEY_LIVE_PATH, parts.joinToString("\u0001")).apply()
     }
 
     // ---------- 直连播放历史 ----------
