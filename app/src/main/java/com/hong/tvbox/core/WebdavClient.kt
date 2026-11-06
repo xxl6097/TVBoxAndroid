@@ -1,6 +1,8 @@
 package com.hong.tvbox.core
 
 import android.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * WebDAV 客户端 - 从鸿蒙 Webdav.ets 移植
@@ -44,6 +46,48 @@ object WebdavClient {
         if (root.isEmpty() || root == "/") return ""
         if (!root.startsWith("/")) root = "/$root"
         return root.trimEnd('/')
+    }
+
+    /**
+     * 从候选地址里挑一个真能返回媒体流的。
+     *
+     * 各家 WebDAV 对路径写法要求不一（有的文件要尾斜杠、有的不要），
+     * 与其猜，不如花一次 1KB 请求试出来；都不行就退回第一个交给播放器报错。
+     */
+    suspend fun pickPlayable(
+        source: WebdavSource,
+        candidates: List<String>
+    ): String = withContext(Dispatchers.IO) {
+        val headers = mutableMapOf<String, String>()
+        authHeader(source)?.let { headers["Authorization"] = it }
+
+        val seen = mutableSetOf<String>()
+        for (u in candidates) {
+            if (u.isEmpty() || !seen.add(u)) continue
+            if (HttpClient.looksPlayable(u, headers)) return@withContext u
+        }
+        candidates.firstOrNull() ?: ""
+    }
+
+    /**
+     * 用服务端返回的 href 拼绝对地址。
+     *
+     * 为什么不自己拼「目录 + 文件名」：真实极空间的 href 不走规范 ——
+     * 文件路径带尾斜杠（`/x/电影/xxx.mp4/`），个别目录反而不带。
+     * 客户端按「目录/名字」拼出来的地址它会认不出来，直接返回首页 HTML（状态码还是 200），
+     * 播放器就报 Source error。href 才是服务端认可的那份路径，照抄最稳。
+     */
+    fun absoluteUrl(source: WebdavSource, href: String): String {
+        val path = if (href.startsWith("/")) href else "/$href"
+        val authority = try {
+            val u = java.net.URI(source.url)
+            if (u.port > 0) "${u.scheme}://${u.host}:${u.port}"
+            else "${u.scheme}://${u.host}"
+        } catch (e: Exception) {
+            // URL 解析不出来就退回按源地址拼（保持旧行为）
+            return urlFor(source, href.trimStart('/'))
+        }
+        return encodeUrl(authority + path)
     }
 
     /** 拼出某个路径的完整 URL（path 为空表示挂载根） */

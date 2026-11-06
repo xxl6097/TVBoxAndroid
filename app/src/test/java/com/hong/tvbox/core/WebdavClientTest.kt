@@ -195,7 +195,6 @@ class WebdavClientTest {
     }
 
     // ============ 播放地址编码 ============
-
     @Test
     fun `播放地址里的中文与空格要编码`() {
         val src = WebdavSource(
@@ -242,5 +241,26 @@ class WebdavClientTest {
         assertEquals(1, list.size)
         assertEquals("电影", list[0].name)
         assertTrue(list[0].isDir)
+    }
+
+    @Test
+    fun `href 带尾斜杠时绝对地址要保留斜杠`() {
+        // 极空间对文件也返回 `...mp4/`，去掉斜杠它就不认这个路由（回首页 HTML）
+        val src = WebdavSource(url = "https://fs.example.com:88/dav/迅雷下载")
+        val u = WebdavClient.absoluteUrl(src, "/dav/迅雷下载/电影/凡人修仙传06.mp4/")
+
+        assertTrue("主机端口要保留", u.startsWith("https://fs.example.com:88/dav/"))
+        assertTrue("尾斜杠不能丢", u.endsWith(".mp4/"))
+        assertFalse("不应残留中文", u.contains("电影"))
+        assertTrue(u.contains("%E7%94%B5%E5%BD%B1"))
+    }
+
+    @Test
+    fun `href 不带协议头时也能拼成绝对地址`() {
+        val src = WebdavSource(url = "http://192.168.1.10:5244/dav")
+        assertEquals(
+            "http://192.168.1.10:5244/dav/a.mp4",
+            WebdavClient.absoluteUrl(src, "dav/a.mp4")
+        )
     }
 }

@@ -531,26 +531,40 @@ class WebdavActivity : AppCompatActivity() {
     }
 
     private fun play(src: WebdavSource, dir: String, e: WebdavEntry) {
-        val url = WebdavClient.urlFor(src, join(dir, e.name))
+        // 候选地址：href 是服务端给的那份路径（极空间对文件也带尾斜杠），
+        // 自己按「目录/文件名」拼出来的写法也留一份兜底。
+        val candidates = buildList {
+            if (e.href.isNotEmpty()) {
+                val fromHref = WebdavClient.absoluteUrl(src, e.href)
+                add(fromHref)
+                add(fromHref.trimEnd('/'))
+            }
+            add(WebdavClient.urlFor(src, join(dir, e.name)))
+        }
 
-        // 起播同时打一发探针：把服务器真实响应（状态码/类型/开头内容）落到
-        // files/wd_probe.txt。播放失败时（尤其「Source error」）不用猜，adb pull 即可定位。
-        probePlayback(src, url)
+        statusView.text = "正在连接…"
 
-        PlayerActivity.start(
-            context = this,
-            // 用绝对地址当唯一键：续播时不必再回网盘找文件
-            vodId = url,
-            // 带上源 id，续播时据此取账号密码拼 Authorization
-            siteKey = "webdav:${src.id}",
-            vodName = e.name,
-            lineName = "网盘",
-            allEpisodes = listOf(Episode(name = e.name, url = url)),
-            episodeIndex = 0,
-            isDirect = true,
-            siteApi = "",
-            authHeader = WebdavClient.authHeader(src).orEmpty()
-        )
+        lifecycleScope.launch {
+            // 先花 1KB 试出哪种写法真能吐媒体流，避免起播后才报 Source error
+            val url = WebdavClient.pickPlayable(src, candidates)
+            probePlayback(src, url)
+            statusView.text = ""
+
+            PlayerActivity.start(
+                context = this@WebdavActivity,
+                // 用绝对地址当唯一键：续播时不必再回网盘找文件
+                vodId = url,
+                // 带上源 id，续播时据此取账号密码拼 Authorization
+                siteKey = "webdav:${src.id}",
+                vodName = e.name,
+                lineName = "网盘",
+                allEpisodes = listOf(Episode(name = e.name, url = url)),
+                episodeIndex = 0,
+                isDirect = true,
+                siteApi = "",
+                authHeader = WebdavClient.authHeader(src).orEmpty()
+            )
+        }
     }
 
     /**
@@ -565,12 +579,30 @@ class WebdavActivity : AppCompatActivity() {
         WebdavClient.authHeader(src)?.let { headers["Authorization"] = it }
 
         lifecycleScope.launch {
-            val info = com.hong.tvbox.core.HttpClient.diagnose(url, headers, 8000)
-            android.util.Log.i("TVBoxWD", "play probe: $url -> $info")
+            // 同时探两种写法：带尾斜杠 / 不带。极空间的 href 带斜杠，
+            // 但 get 是否接受带斜杠要实测，两个结果都记下来。
+            val withSlash = if (url.endsWith("/")) url else "$url/"
+            val noSlash = url.trimEnd('/')
+
+            val a = com.hong.tvbox.core.HttpClient.diagnose(noSlash, headers, 8000)
+            val b = com.hong.tvbox.core.HttpClient.diagnose(withSlash, headers, 8000)
+            val c = com.hong.tvbox.core.HttpClient.diagnose(noSlash, null, 8000)
+
+            android.util.Log.i("TVBoxWD", "probe noSlash=$a")
+            android.util.Log.i("TVBoxWD", "probe withSlash=$b")
+
             runCatching {
                 val dir = getExternalFilesDir(null) ?: filesDir
                 java.io.File(dir, "wd_probe.txt").writeText(
-                    "url=$url\nauth=${if (headers.isEmpty()) "none" else "basic"}\n$info\n"
+                    buildString {
+                        appendLine("auth=${if (headers.isEmpty()) "none" else "basic"}")
+                        appendLine("no_slash = $noSlash")
+                        appendLine("   $a")
+                        appendLine("with_slash = $withSlash")
+                        appendLine("   $b")
+                        appendLine("no_auth = $noSlash")
+                        appendLine("   $c")
+                    }
                 )
             }
         }

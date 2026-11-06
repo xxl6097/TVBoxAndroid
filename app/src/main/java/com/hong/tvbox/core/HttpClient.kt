@@ -110,6 +110,40 @@ object HttpClient {
     }
 
     /**
+     * 取 1KB 判断这条地址返回的是「媒体流」还是「网页」。
+     *
+     * 有些 NAS 对不认识的路径会返回自家首页（状态码照样 200），
+     * 播放器只能报 Source error。起播前先探一下，能提前挑对地址。
+     */
+    suspend fun looksPlayable(
+        url: String,
+        headers: Map<String, String>? = null,
+        timeoutMs: Long = 6000
+    ): Boolean = withContext(Dispatchers.IO) {
+        val builder = Request.Builder()
+            .url(url)
+            .header("User-Agent", UA)
+            .header("Range", "bytes=0-1023")
+
+        headers?.forEach { (k, v) -> builder.header(k, v) }
+
+        try {
+            clientWith(timeoutMs).newCall(builder.build()).execute().use { r ->
+                if (r.code !in 200..299) return@withContext false
+                val ct = (r.header("Content-Type") ?: "").lowercase()
+                // text/html、application/xml 之类一律视为「不是媒体」
+                if (ct.startsWith("text/") || ct.contains("html")) return@withContext false
+                val body = r.body?.bytes() ?: ByteArray(0)
+                if (body.isEmpty()) return@withContext false
+                // 兜底：开头是 '<' 说明是标记语言
+                body[0].toInt().toChar() != '<'
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * 诊断用：GET 前 2KB，返回「状态码 / Content-Type / 长度 / 开头内容」。
      *
      * 用来回答一个很常见的问题：「播放器报 Source error，到底是 404、401，
