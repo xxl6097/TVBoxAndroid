@@ -83,6 +83,9 @@ class MainActivity : AppCompatActivity() {
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
+            // 容器自己不接收焦点，否则方向键只会滚动页面、焦点永远落不到卡片上
+            isFocusable = false
+            isFocusableInTouchMode = false
         }
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -95,6 +98,28 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
         renderDynamic()
+
+        // TV 上没有触摸，必须主动给第一个可聚焦控件一个初始焦点，
+        // 否则方向键只会滚页面，看起来像"遥控器失灵"
+        root.post {
+            val first = findFirstFocusable(content)
+            first?.requestFocus()
+        }
+    }
+
+    /** 深度优先找第一个可聚焦控件 */
+    private fun findFirstFocusable(group: ViewGroup): View? {
+        for (i in 0 until group.childCount) {
+            val child = group.getChildAt(i)
+            if (child.visibility != View.VISIBLE) continue
+
+            if (child is ViewGroup) {
+                findFirstFocusable(child)?.let { return it }
+            } else if (child.isFocusable) {
+                return child
+            }
+        }
+        return null
     }
 
     private fun buildTopBar(): View {
