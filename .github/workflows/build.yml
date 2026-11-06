@@ -43,6 +43,9 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
 
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
       # 额外跑一次 release（未签名）只为验证 R8/ProGuard 规则没把东西裁坏，
       # 没有密钥时不签名是正常的，产物仅供体积参考
       - name: Build Release (R8 check, unsigned)

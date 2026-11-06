@@ -121,4 +121,7 @@ dependencies {
 
     // Lifecycle scope for Fragment/Activity
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+
+    // 单元测试（WebDAV 解析等纯逻辑）
+    testImplementation("junit:junit:4.13.2")
 }
