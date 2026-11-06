@@ -47,20 +47,32 @@ class MainBrowseFragment : BrowseSupportFragment() {
         }
 
         onItemViewClickedListener = ItemViewClickedListener()
+    }
 
+    /**
+     * 每次回到首页都重建内容行。
+     *
+     * 从「设置」导入配置/订阅后返回，如果不重建，首页还是首启那段引导文字，
+     * 用户会以为导入没生效。放在 onResume 而不是 onActivityCreated，
+     * 顺带覆盖了「看完片返回，继续观看进度要更新」的场景。
+     */
+    override fun onResume() {
+        super.onResume()
+        rowsAdapter.clear()
         loadContent()
     }
 
     private fun loadContent() {
         val config = configStore.getConfig()
 
+        // 功能入口行必须最先加：没有配置时用户正是靠这一行的「设置」去导入，
+        // 之前把它放在配置判断之后，导致首启页只有一段说明文字、进不去设置，形成死锁
+        addFunctionRow()
+
         if (config == null || config.sites.isEmpty()) {
             showConfigGuide()
             return
         }
-
-        // 功能入口行
-        addFunctionRow()
 
         // 继续观看行（历史）
         addHistoryRow()
