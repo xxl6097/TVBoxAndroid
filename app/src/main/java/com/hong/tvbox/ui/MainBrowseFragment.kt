@@ -28,6 +28,9 @@ class MainBrowseFragment : BrowseSupportFragment() {
     private val rowsAdapter = ArrayObjectAdapter(ListRowPresenter())
     /** 防重入：抓取进行中再次 onResume 不要并发跑第二轮 */
     private var crawlRunning = false
+    /** 首页加载态（骨架/转圈），站源内容全部回来后隐藏 */
+    private val progressManager = ProgressBarManager()
+    private var pendingSites = 0
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         super.onActivityCreated(savedInstanceState)
@@ -42,6 +45,9 @@ class MainBrowseFragment : BrowseSupportFragment() {
         brandColor = Color.parseColor("#FFFFFF")
         searchAffordanceColor = Color.parseColor("#FFEB3B")
         adapter = rowsAdapter
+
+        // 加载态：首屏和各站内容回来之前转圈，避免只有一行功能入口的空白感
+        setProgressBarManager(progressManager)
 
         // 搜索图标点击
         setOnSearchClickedListener {
@@ -84,6 +90,10 @@ class MainBrowseFragment : BrowseSupportFragment() {
 
         // 每个启用的站源加载内容
         val sites = configStore.getEnabledSiteList()
+        if (sites.isNotEmpty()) {
+            pendingSites = sites.size
+            if (isAdded && view != null) progressManager.show()
+        }
         sites.forEach { site ->
             loadSiteContent(site)
         }
@@ -165,17 +175,9 @@ class MainBrowseFragment : BrowseSupportFragment() {
         val history = historyStore.getAll()
         if (history.isEmpty()) return
 
-        val adapter = ArrayObjectAdapter(VodCardPresenter())
-        history.take(20).forEach { h ->
-            val vod = Vod(
-                id = h.vodId,
-                name = h.vodName,
-                pic = h.vodPic,
-                remark = h.episodeName,
-                siteKey = h.siteKey
-            )
-            adapter.add(vod)
-        }
+        // 用带进度条的卡片：能一眼看出「上次看到哪」，比纯海报更有信息量
+        val adapter = ArrayObjectAdapter(HistoryCardPresenter())
+        history.take(20).forEach { adapter.add(it) }
 
         val header = HeaderItem(1, "继续观看")
         rowsAdapter.add(ListRow(header, adapter))
@@ -200,6 +202,13 @@ class MainBrowseFragment : BrowseSupportFragment() {
                 }
             } catch (e: Exception) {
                 // 站源加载失败，跳过
+            } finally {
+                // 最后一个站源回来就收起加载态（含失败的情况，否则会一直转圈）
+                pendingSites--
+                if (pendingSites <= 0) {
+                    pendingSites = 0
+                    if (isAdded) progressManager.hide()
+                }
             }
         }
     }
@@ -249,6 +258,17 @@ class MainBrowseFragment : BrowseSupportFragment() {
                 }
                 is Vod -> {
                     DetailActivity.start(requireContext(), item)
+                }
+                is History -> {
+                    // 点「继续观看」直接续播，不绕详情页
+                    PlaybackResumer.resume(
+                        scope = viewLifecycleOwner.lifecycleScope,
+                        context = requireContext(),
+                        configStore = configStore,
+                        h = item
+                    ) { msg ->
+                        android.widget.Toast.makeText(requireContext(), msg, android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }

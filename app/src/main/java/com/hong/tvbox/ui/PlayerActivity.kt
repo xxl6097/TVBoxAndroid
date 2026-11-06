@@ -57,6 +57,8 @@ class PlayerActivity : AppCompatActivity() {
     private var isLiveMode = false
     /** WebDAV 等需要认证的源，播放请求要带 Authorization */
     private var authHeader = ""
+    /** 本轮播放是否已经因错误自动换过线路（避免无限换线） */
+    private var autoSwitched = false
 
     // UI 控件
     private lateinit var loadingView: View
@@ -553,18 +555,38 @@ class PlayerActivity : AppCompatActivity() {
 
         player?.release()
 
-        // WebDAV 等需要 Basic 认证的源：把 Authorization 交给数据源工厂，
-        // 不要先下载再播，直接让播放器带头上阵
-        val builder = ExoPlayer.Builder(this)
+        // 数据源 + 失败重试策略：
+        // 弱网/源站抖动时先自己重试几次，别一有风浪就弹错误页。
+        // WebDAV 等需要 Basic 认证的源，把 Authorization 挂在数据源上，
+        // 让播放器带着头去请求，而不是先下载再播。
+        val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(20_000)
+            .setAllowCrossProtocolRedirects(true)
         if (authHeader.isNotEmpty()) {
-            val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-                .setDefaultRequestProperties(mapOf("Authorization" to authHeader))
-            builder.setMediaSourceFactory(
-                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpFactory)
-            )
+            httpFactory.setDefaultRequestProperties(mapOf("Authorization" to authHeader))
         }
 
-        player = builder.build().also { p ->
+        val mediaFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpFactory)
+            .setLoadErrorHandlingPolicy(
+                androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(3)
+            )
+
+        // 缓冲调大一些：电视盒子网络抖动比手机明显，宁可多缓几秒也别卡
+        val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                30_000,   // 最小缓冲
+                120_000,  // 最大缓冲
+                1_500,    // 起播缓冲
+                3_000     // 卡顿后重缓冲
+            )
+            .build()
+
+        player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaFactory)
+            .setLoadControl(loadControl)
+            .build()
+            .also { p ->
             playerView.player = p
 
             p.addListener(object : Player.Listener {
@@ -573,6 +595,8 @@ class PlayerActivity : AppCompatActivity() {
                         Player.STATE_READY -> {
                             isPrepared = true
                             isBuffering = false
+                            // 真的播起来了才重置自动换线标记，否则失败→换线→失败会无限循环
+                            autoSwitched = false
                             loadingView.visibility = View.GONE
                             // 续播定位：优先用调用方传入的位置，其次读本地历史
                             // 直播没有“看到哪”的概念，跳过
@@ -612,6 +636,15 @@ class PlayerActivity : AppCompatActivity() {
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    // 还有别的线路就先自动换一条，换过仍失败才弹错误页，
+                    // 避免用户看到「播放失败」就以为这片看不了
+                    val hasNext = currentEpisodeIndex + 1 < allEpisodes.size
+                    if (hasNext && !autoSwitched) {
+                        autoSwitched = true
+                        showTip(if (isLiveMode) "当前线路异常，切换下一线路" else "当前线路异常，切换下一集")
+                        switchEpisode(1)
+                        return
+                    }
                     showError("播放失败：${error.message}")
                 }
 
