@@ -240,7 +240,13 @@ class MainActivity : AppCompatActivity() {
 
         card.addView(elided(h.vodName, 13f, TvUi.TEXT).apply { setPadding(0, dp(6), 0, 0) })
 
-        val ep = if (h.episodeName.isNotEmpty()) h.episodeName else "第 ${h.episodeIndex + 1} 集"
+        // 副标题：有进度就显示「看到 1:13 / 2:00:05」。
+        // 网盘/直连记录的剧集名和片名相同，直接展示会重复成两行一样的字
+        val ep = when {
+            h.duration > 0 && h.position > 0 -> "看到 ${fmtTime(h.position)} / ${fmtTime(h.duration)}"
+            h.episodeName.isNotEmpty() && h.episodeName != h.vodName -> h.episodeName
+            else -> "第 ${h.episodeIndex + 1} 集"
+        }
         card.addView(elided(ep, 11f, TvUi.DIM))
 
         card.layoutParams = LinearLayout.LayoutParams(
@@ -464,5 +470,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density + 0.5f).toInt()
+    }
+
+    /** 毫秒 → mm:ss / h:mm:ss */
+    private fun fmtTime(ms: Long): String {
+        val total = ms / 1000
+        val h = total / 3600
+        val m = (total % 3600) / 60
+        val s = total % 60
+        return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
     }
 }
