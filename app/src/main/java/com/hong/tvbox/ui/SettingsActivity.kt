@@ -211,6 +211,8 @@ class SettingsActivity : AppCompatActivity() {
                 }
 
                 val siteCount = configStore.loadConfig(text)
+                // 换了配置，旧站源 key 已经不适用，开关重置为「全部启用」
+                configStore.resetEnabledSites()
                 CmsClient.clearCache()
 
                 subscribeStatus.text = "导入成功：$siteCount 个站源"
@@ -246,6 +248,7 @@ class SettingsActivity : AppCompatActivity() {
                 }
 
                 val siteCount = configStore.loadConfig(text)
+                configStore.resetEnabledSites()
                 CmsClient.clearCache()
 
                 configStatus.text = "导入成功：$siteCount 个站源"
@@ -277,6 +280,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         val enabledKeys = configStore.getEnabledSites().toMutableSet()
+        val customized = configStore.isEnabledCustomized()
 
         sites.forEach { site ->
             val row = LinearLayout(this).apply {
@@ -312,7 +316,8 @@ class SettingsActivity : AppCompatActivity() {
 
             if (site.type != 3) {
                 val toggle = Switch(this).apply {
-                    isChecked = enabledKeys.isEmpty() || enabledKeys.contains(site.key)
+                    // 没自定义过 = 全部启用；自定义过 = 严格看集合
+                    isChecked = !customized || enabledKeys.contains(site.key)
                     setOnCheckedChangeListener { _, checked ->
                         if (checked) {
                             enabledKeys.add(site.key)
@@ -419,11 +424,14 @@ class SettingsActivity : AppCompatActivity() {
             .toSet()
 
         configStore.saveEnabledSites(best5)
+        refreshSitesUI()
         Toast.makeText(this, "已启用最快 ${best5.size} 个站源", Toast.LENGTH_SHORT).show()
     }
 
     private fun enableAll() {
-        configStore.saveEnabledSites(emptySet())
+        // 回到「未自定义」状态：所有可用站源自动启用
+        configStore.resetEnabledSites()
+        refreshSitesUI()
         Toast.makeText(this, "已恢复全部启用", Toast.LENGTH_SHORT).show()
     }
 

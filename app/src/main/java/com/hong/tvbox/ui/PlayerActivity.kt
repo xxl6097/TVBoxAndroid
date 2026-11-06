@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
@@ -67,9 +68,16 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var osdNextBtn: Button
     private lateinit var osdRetryBtn: Button
     private lateinit var osdVia: TextView
+    private lateinit var osdMuteBtn: Button
+    /** 画面正中的一次性提示（±10 秒 / 音量 / 切集），3 米外也看得清 */
+    private lateinit var centerTip: TextView
+
+    private var isMuted = false
+    private var volumeBeforeMute = 1.0f
 
     private val handler = Handler(Looper.getMainLooper())
     private val osdRunnable = Runnable { if (isPlaying) hideOsd() }
+    private val tipRunnable = Runnable { centerTip.visibility = View.GONE }
 
     companion object {
         const val EXTRA_VOD_ID = "vod_id"
@@ -282,16 +290,28 @@ class PlayerActivity : AppCompatActivity() {
             setOnClickListener { switchEpisode(-1) }
         }
         controlRow.addView(osdPrevBtn)
+
+        // 快退 / 快进 10 秒（遥控器左右键的等价按钮）
+        controlRow.addView(osdButton("« 10s") { seekBy(-10_000L) })
         osdPlayPauseBtn = Button(this).apply {
             text = "播放"
             setOnClickListener { togglePlay() }
         }
         controlRow.addView(osdPlayPauseBtn)
+        controlRow.addView(osdButton("10s »") { seekBy(10_000L) })
+
         osdNextBtn = Button(this).apply {
             text = "下一集"
             setOnClickListener { switchEpisode(1) }
         }
         controlRow.addView(osdNextBtn)
+
+        // 音量：调的是播放器音量（不受系统静音影响，电视上更可控）
+        controlRow.addView(osdButton("音量−") { changeVolume(-0.1f) })
+        osdMuteBtn = osdButton("静音") { toggleMute() }
+        controlRow.addView(osdMuteBtn)
+        controlRow.addView(osdButton("音量+") { changeVolume(0.1f) })
+
         osdLayout.addView(controlRow)
 
         // 解析来源
@@ -311,6 +331,22 @@ class PlayerActivity : AppCompatActivity() {
 
         setContentView(root)
 
+        // 中央提示层：叠在画面正中，播完自动淡出
+        centerTip = TextView(this).apply {
+            textSize = 34f
+            setTextColor(Color.WHITE)
+            setShadowLayer(8f, 0f, 2f, Color.BLACK)
+            gravity = android.view.Gravity.CENTER
+            visibility = View.GONE
+            isClickable = false
+            isFocusable = false
+        }
+        root.addView(centerTip, android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.CENTER
+        ))
+
         // 点击画面切换 OSD
         root.setOnClickListener {
             if (showOsd) {
@@ -319,6 +355,143 @@ class PlayerActivity : AppCompatActivity() {
                 showOsd()
             }
         }
+    }
+
+    /** 控制条里的紧凑按钮 */
+    private fun osdButton(label: String, action: () -> Unit): Button {
+        return Button(this).apply {
+            text = label
+            textSize = 14f
+            minimumWidth = 0
+            minWidth = 0
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).also { it.marginEnd = dp(8) }
+            setOnClickListener { action() }
+        }
+    }
+
+    /**
+     * 遥控器按键。
+     *
+     * OSD 可见且焦点在控制条上时，方向键要留给焦点移动，
+     * 否则用户想在「上一集 / 播放 / 下一集」之间挪都挪不动。
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (event == null) return super.onKeyDown(keyCode, event)
+        val osdFocused = osdHasFocus()
+
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_HEADSETHOOK -> {
+                if (osdFocused) return super.onKeyDown(keyCode, event)
+                if (isPrepared) togglePlay()
+                return true
+            }
+
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                if (osdFocused) return super.onKeyDown(keyCode, event)
+                // 长按连发时步长放大到 30 秒，避免一路点
+                seekBy(if (event.repeatCount > 0) -30_000L else -10_000L)
+                return true
+            }
+
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                if (osdFocused) return super.onKeyDown(keyCode, event)
+                seekBy(if (event.repeatCount > 0) 30_000L else 10_000L)
+                return true
+            }
+
+            // 鸿蒙版：↑ / ↓ 是 1 分钟
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                if (osdFocused) return super.onKeyDown(keyCode, event)
+                seekBy(60_000L)
+                return true
+            }
+
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (osdFocused) return super.onKeyDown(keyCode, event)
+                seekBy(-60_000L)
+                return true
+            }
+
+            KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                player?.play(); return true
+            }
+
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                player?.pause(); return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    private fun osdHasFocus(): Boolean {
+        if (osdView.visibility != View.VISIBLE) return false
+        var v: View? = currentFocus ?: return false
+        while (v != null) {
+            if (v === osdView) return true
+            v = v.parent as? View
+        }
+        return false
+    }
+
+    /** 相对定位，越界自动夹到 [0, duration] */
+    private fun seekBy(deltaMs: Long) {
+        val p = player ?: return
+        if (!isPrepared || p.duration <= 0) return
+
+        val target = (p.currentPosition + deltaMs).coerceIn(0L, p.duration)
+        p.seekTo(target)
+
+        val secs = Math.abs(deltaMs) / 1000
+        showTip((if (deltaMs > 0) "▶▶ +" else "◀◀ −") + "${secs}s    " + formatTime(target))
+        showOsd()
+    }
+
+    private fun changeVolume(delta: Float) {
+        val p = player ?: return
+        val next = (p.volume + delta).coerceIn(0f, 1f)
+        p.volume = next
+        if (next > 0f) {
+            isMuted = false
+            volumeBeforeMute = next
+            if (this::osdMuteBtn.isInitialized) osdMuteBtn.text = "静音"
+        }
+        showTip("音量 ${(next * 100).toInt()}%")
+        showOsd()
+    }
+
+    private fun toggleMute() {
+        val p = player ?: return
+        if (isMuted) {
+            p.volume = volumeBeforeMute
+            isMuted = false
+            if (this::osdMuteBtn.isInitialized) osdMuteBtn.text = "静音"
+            showTip("已取消静音")
+        } else {
+            volumeBeforeMute = p.volume
+            p.volume = 0f
+            isMuted = true
+            if (this::osdMuteBtn.isInitialized) osdMuteBtn.text = "取消静音"
+            showTip("静音")
+        }
+        showOsd()
+    }
+
+    private fun showTip(text: String) {
+        if (!this::centerTip.isInitialized) return
+        centerTip.text = text
+        centerTip.visibility = View.VISIBLE
+        handler.removeCallbacks(tipRunnable)
+        handler.postDelayed(tipRunnable, 900)
     }
 
     private fun startPlayback() {

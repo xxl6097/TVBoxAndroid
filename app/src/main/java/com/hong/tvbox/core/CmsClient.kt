@@ -269,6 +269,41 @@ class CmsClient(private val site: Site) {
         pg
     }
     
+    /**
+     * 父分类 + 子分类合并取第一页。
+     *
+     * 采集站的父分类（如「电视剧」）通常没有直属影片：直接请求 t=1 返回空列表，
+     * 界面就会显示「这个分类下没有内容」，但下面明明排着 欧美剧/韩剧/日剧，
+     * 用户会以为软件坏了。这里把父 + 子一起请求、按 vod id 去重合并。
+     *
+     * 只取第 1 页且不翻页：聚合结果本来就是各类最新的混排，
+     * 继续翻页的语义说不清（翻谁的页），翻页留给具体子分类。
+     */
+    suspend fun listMerged(ids: List<String>, page: Int): VodPage = withContext(Dispatchers.IO) {
+        val out = VodPage(page = 1, pageCount = 1)
+        if (ids.isEmpty()) return@withContext out
+
+        // 逐个取，失败即跳过（某个子分类挂了不该拖垮整页）
+        val pages = ids.map { id ->
+            try {
+                list(id, page)
+            } catch (e: Exception) {
+                VodPage()
+            }
+        }
+
+        val seen = mutableSetOf<String>()
+        pages.forEach { pg ->
+            pg.items.forEach { vod ->
+                if (vod.id.isNotEmpty() && seen.add(vod.id)) {
+                    out.items.add(vod)
+                }
+            }
+        }
+        out.total = out.items.size
+        out
+    }
+
     suspend fun detail(id: String): Vod = withContext(Dispatchers.IO) {
         val q = "ac=detail&ids=${URLEncoder.encode(id, "UTF-8")}"
         val txt = fetch(u(q), TTL_DETAIL, 18000)

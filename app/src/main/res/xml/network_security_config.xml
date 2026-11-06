@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  允许明文 HTTP。
+
+  TVBox 站源里相当大一部分接口仍是 http://（采集站换域频繁，很多没上证书），
+  Android 9 起 targetSdk>=28 默认禁止明文，不放开这一项会表现为
+  “所有站源都加载失败”，而错误信息只是一句网络异常，很难定位。
+
+  这里只放开明文传输，不降低 TLS 校验强度（cleartextTrafficPermitted 仅作用于 http）。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <!-- 部分极空间/群晖 WebDAV 用自签证书，信任用户安装的 CA 才能连上 -->
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -46,10 +46,14 @@ class DetailActivity : AppCompatActivity() {
     private lateinit var toggleIntroBtn: TextView
     private lateinit var linesContainer: LinearLayout
     private lateinit var episodesLabel: TextView
+    private lateinit var episodesHeader: LinearLayout
+    private lateinit var orderBtn: TextView
     private lateinit var episodesGrid: GridLayout
     private lateinit var bodyRowView: LinearLayout
 
     private var fullIntro = false
+    /** 剧集是否倒序显示（从新到旧） */
+    private var epDesc = false
 
     companion object {
         const val EXTRA_VOD_ID = "vod_id"
@@ -103,6 +107,7 @@ class DetailActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             setOnClickListener { finish() }
         }
+        backBtn.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1f)
         topBar.addView(backBtn, LinearLayout.LayoutParams(dp(40), dp(40)))
 
         titleView = TextView(this).apply {
@@ -122,6 +127,7 @@ class DetailActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor("#33000000"))
             setOnClickListener { toggleFavorite() }
         }
+        favBtn.onTvFocus(scale = 1f)
         topBar.addView(favBtn)
         container.addView(topBar)
 
@@ -201,6 +207,7 @@ class DetailActivity : AppCompatActivity() {
                     if (fullIntro) "简介已展开" else "简介已收起", Toast.LENGTH_SHORT).show()
             }
         }
+        toggleIntroBtn.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1f)
         infoCol.addView(toggleIntroBtn)
 
         // 线路选择
@@ -229,7 +236,30 @@ class DetailActivity : AppCompatActivity() {
             setPadding(0, dp(20), 0, dp(10))
             visibility = View.GONE
         }
-        container.addView(episodesLabel)
+        // 剧集标题行：标题 + 正序/倒序切换（追更的人通常只想点最新一集）
+        val epHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(20), 0, dp(10))
+            visibility = View.GONE
+        }
+        episodesHeader = epHeader
+        epHeader.addView(episodesLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        orderBtn = TextView(this).apply {
+            text = "正序"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            onTvFocus(scale = 1f)
+            setOnClickListener {
+                epDesc = !epDesc
+                text = if (epDesc) "倒序" else "正序"
+                rebuildEpisodesUI()
+            }
+        }
+        epHeader.addView(orderBtn)
+        container.addView(epHeader)
 
         episodesGrid = GridLayout(this).apply {
             visibility = View.GONE
@@ -320,7 +350,13 @@ class DetailActivity : AppCompatActivity() {
                     (if (seenEpisodeIndex >= 0) "  上次看到第 ${seenEpisodeIndex + 1} 集" else "")
             episodesLabel.text = label
             episodesLabel.visibility = View.VISIBLE
+            episodesHeader.visibility = View.VISIBLE
             rebuildEpisodesUI()
+
+            // 上次看到第 N 集时，进来直接把剧集区滚进视野，不用自己找
+            if (seenEpisodeIndex >= 0) {
+                scrollView.post { scrollView.smoothScrollTo(0, episodesHeader.top) }
+            }
         }
 
         // 显示主体
@@ -363,6 +399,11 @@ class DetailActivity : AppCompatActivity() {
                     rebuildEpisodesUI()
                     Toast.makeText(this@DetailActivity, "已切到线路：${line.name}", Toast.LENGTH_SHORT).show()
                 }
+                onTvFocus(
+                    normalColor = if (i == currentLineIndex) TvUi.CARD_HI else TvUi.CARD,
+                    focusColor = 0x66FFFFFF,
+                    scale = 1f
+                )
             }
             linesContainer.addView(btn)
         }
@@ -376,17 +417,16 @@ class DetailActivity : AppCompatActivity() {
         episodesGrid.columnCount = 8
         episodesGrid.visibility = View.VISIBLE
 
-        eps.forEachIndexed { i, ep ->
+        // 倒序时按真实下标倒着渲染，点击仍用真实下标，保证续播/历史记录不错位
+        val order = if (epDesc) eps.indices.reversed().toList() else eps.indices.toList()
+
+        order.forEach { i ->
+            val ep = eps[i]
+            val isSeen = i == seenEpisodeIndex
             val btn = TextView(this).apply {
                 text = ep.name
                 textSize = 15f
-                setTextColor(
-                    if (i == seenEpisodeIndex) Color.parseColor("#FFEB3B") else Color.WHITE
-                )
-                setBackgroundColor(
-                    if (i == seenEpisodeIndex) Color.parseColor("#66000000")
-                    else Color.parseColor("#33000000")
-                )
+                setTextColor(if (isSeen) Color.parseColor("#FFEB3B") else Color.WHITE)
                 gravity = android.view.Gravity.CENTER
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -397,6 +437,13 @@ class DetailActivity : AppCompatActivity() {
                     it.height = dp(46)
                     it.setMargins(dp(5), dp(5), dp(5), dp(5))
                 }
+
+                // 剧集格子不放大（挨太近会互相压住），只换底色
+                onTvFocus(
+                    normalColor = if (isSeen) TvUi.CARD_HI else TvUi.CARD,
+                    focusColor = 0x66FFFFFF,
+                    scale = 1f
+                )
 
                 setOnClickListener {
                     play(ep, i)

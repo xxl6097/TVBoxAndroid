@@ -275,6 +275,11 @@ class SearchActivity : AppCompatActivity() {
             card.addView(nameView, LinearLayout.LayoutParams(dp(104), LinearLayout.LayoutParams.WRAP_CONTENT))
 
             card.setOnClickListener { DetailActivity.start(this, vod) }
+            card.onTvFocus(
+                normalColor = Color.TRANSPARENT,
+                focusColor = TvUi.CARD_HI,
+                scale = 1.05f
+            )
             row.addView(card)
         }
 

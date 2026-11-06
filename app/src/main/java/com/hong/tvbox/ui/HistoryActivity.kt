@@ -205,6 +205,11 @@ class HistoryActivity : AppCompatActivity() {
         row.addView(del, LinearLayout.LayoutParams(dp(40), dp(40)))
 
         row.setOnClickListener { resume(h) }
+        row.onTvFocus(
+            normalColor = 0xFF1C1B1F.toInt(),
+            focusColor = TvUi.CARD_HI,
+            scale = 1.01f
+        )
         row.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).also { it.bottomMargin = dp(8) }

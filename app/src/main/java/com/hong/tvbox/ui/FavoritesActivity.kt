@@ -171,6 +171,11 @@ class FavoritesActivity : AppCompatActivity() {
                     siteKey = fav.siteKey
                 ))
             }
+            card.onTvFocus(
+                normalColor = Color.TRANSPARENT,
+                focusColor = TvUi.CARD_HI,
+                scale = 1.04f
+            )
             gridLayout.addView(card)
         }
     }

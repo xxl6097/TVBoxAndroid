@@ -17,6 +17,7 @@ class ConfigStore(context: Context) {
     companion object {
         private const val KEY_CONFIG_JSON = "config_json"
         private const val KEY_ENABLED_SITES = "enabled_sites"
+        private const val KEY_ENABLED_CUSTOM = "enabled_custom"
         private const val KEY_SUBSCRIBE_URL = "subscribe_url"
         private const val KEY_LIVE_SOURCE_URL = "live_source_url"
         private const val KEY_LAST_UPDATE = "last_update"
@@ -53,7 +54,10 @@ class ConfigStore(context: Context) {
      * 保存启用的站源 key 列表
      */
     fun saveEnabledSites(keys: Set<String>) {
-        prefs.edit().putStringSet(KEY_ENABLED_SITES, keys).apply()
+        prefs.edit()
+            .putStringSet(KEY_ENABLED_SITES, keys)
+            .putBoolean(KEY_ENABLED_CUSTOM, true)
+            .apply()
     }
     
     /**
@@ -61,6 +65,25 @@ class ConfigStore(context: Context) {
      */
     fun getEnabledSites(): Set<String> {
         return prefs.getStringSet(KEY_ENABLED_SITES, emptySet()) ?: emptySet()
+    }
+
+    /**
+     * 用户是否手动调整过站源开关。
+     *
+     * 必须单独记一个标志位：只用「启用集合是否为空」判断的话，
+     * 用户把站源**全部关掉**（集合为空）会被当成「没设置过 → 全部启用」，
+     * 开关看起来完全失灵。有了这个标志，空集合 = 一个都不启用。
+     */
+    fun isEnabledCustomized(): Boolean {
+        return prefs.getBoolean(KEY_ENABLED_CUSTOM, false)
+    }
+
+    /** 恢复默认：清除自定义标记，回到「自动启用所有可用站源」 */
+    fun resetEnabledSites() {
+        prefs.edit()
+            .remove(KEY_ENABLED_SITES)
+            .putBoolean(KEY_ENABLED_CUSTOM, false)
+            .apply()
     }
     
     /**
@@ -71,6 +94,7 @@ class ConfigStore(context: Context) {
     fun getEnabledSiteList(): List<Site> {
         val config = getConfig() ?: return emptyList()
         val enabled = getEnabledSites()
+        val customized = isEnabledCustomized()
 
         // 先给 site 打标
         val sites = config.sites.map { site ->
@@ -89,10 +113,11 @@ class ConfigStore(context: Context) {
             )
         }
 
-        return if (enabled.isEmpty()) {
-            // 首次使用，默认只启用可用站源（type 0/1/4）
+        return if (!customized) {
+            // 用户没动过开关：默认启用所有可用站源
             sites.filter { it.usable }
         } else {
+            // 用户动过：严格按集合来（空集合就是全关）
             sites.filter { it.usable && enabled.contains(it.key) }
         }
     }

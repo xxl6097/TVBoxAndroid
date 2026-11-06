@@ -158,10 +158,10 @@ class VodBrowseActivity : AppCompatActivity() {
             text = label
             textSize = 15f
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#33000000"))
             gravity = Gravity.CENTER
             setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(dp(72), dp(36)).also { it.marginStart = dp(10) }
+            onTvFocus(scale = 1f)
         }
     }
 
@@ -241,6 +241,12 @@ class VodBrowseActivity : AppCompatActivity() {
                 ).also { it.marginEnd = dp(8) }
             }
             styleChip(chip, currentCat?.id == cat.id)
+            // 遥控器焦点高亮（胶囊按钮不放大，避免与相邻胶囊重叠）
+            chip.onTvFocus(
+                normalColor = if (currentCat?.id == cat.id) TvUi.CARD_HI else TvUi.CARD,
+                focusColor = 0x66FFFFFF,
+                scale = 1f
+            )
             catRow.addView(chip)
         }
     }
@@ -270,14 +276,36 @@ class VodBrowseActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val cms = CmsClient(s)
-                val result = cms.list(cat.id, page)
-                currentPage = result.page
-                pageCount = if (result.pageCount > 0) result.pageCount else 1
+
+                // 父分类通常没有直属影片：若它下面挂着子分类，就把父 + 子一起拉取合并，
+                // 否则点「电视剧」会看到空列表（鸿蒙版同样处理）
+                val children = categories.filter { it.pid.isNotEmpty() && it.pid == cat.id }
+                val result: VodPage
+                if (children.isNotEmpty()) {
+                    result = cms.listMerged(listOf(cat.id) + children.map { it.id }, 1)
+                    // 聚合只取第 1 页，关掉翻页避免语义混乱
+                    currentPage = 1
+                    pageCount = 1
+                } else {
+                    result = cms.list(cat.id, page)
+                    currentPage = result.page
+                    pageCount = if (result.pageCount > 0) result.pageCount else 1
+                }
+
                 renderGrid(result.items)
-                statusView.text = if (result.items.isEmpty()) "该分类下没有内容" else ""
-                pageInfo.text = "第 $currentPage / $pageCount 页"
-                prevBtn.isEnabled = currentPage > 1
-                nextBtn.isEnabled = currentPage < pageCount
+
+                statusView.text = when {
+                    result.items.isNotEmpty() && children.isNotEmpty() ->
+                        "「${cat.name}」聚合自 ${children.size + 1} 个分类"
+                    result.items.isEmpty() && children.isNotEmpty() ->
+                        "该分类及其 ${children.size} 个子分类都没有内容"
+                    result.items.isEmpty() -> "该分类下没有内容"
+                    else -> ""
+                }
+
+                pageInfo.text = if (children.isNotEmpty()) "聚合视图" else "第 $currentPage / $pageCount 页"
+                prevBtn.isEnabled = children.isEmpty() && currentPage > 1
+                nextBtn.isEnabled = children.isEmpty() && currentPage < pageCount
                 scroll.scrollTo(0, 0)
             } catch (e: Exception) {
                 statusView.text = "列表加载失败：${e.message}"
@@ -337,6 +365,11 @@ class VodBrowseActivity : AppCompatActivity() {
             }
 
             card.setOnClickListener { DetailActivity.start(this, vod) }
+            card.onTvFocus(
+                normalColor = Color.TRANSPARENT,
+                focusColor = TvUi.CARD_HI,
+                scale = 1.04f
+            )
             gridLayout.addView(card)
         }
     }
