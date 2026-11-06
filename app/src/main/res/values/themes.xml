@@ -21,9 +21,4 @@
         <item name="android:fitsSystemWindows">false</item>
     </style>
 
-    <!-- Leanback 主题 -->
-    <style name="Theme.TvBox.Leanback" parent="Theme.Leanback">
-        <item name="android:windowBackground">@color/window_background</item>
-        <item name="colorPrimary">@color/primary</item>
-    </style>
 </resources>

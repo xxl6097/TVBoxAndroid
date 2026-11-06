@@ -90,8 +90,6 @@ android {
 }
 
 dependencies {
-    // Android TV Leanback
-    implementation("androidx.leanback:leanback:1.2.0-alpha04")
     implementation("androidx.appcompat:appcompat:1.6.1")
     
     // ExoPlayer
