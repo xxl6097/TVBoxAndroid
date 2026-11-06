@@ -193,4 +193,54 @@ class WebdavClientTest {
         assertEquals("不可饶恕.1992_BD国英双语中字.mp4", list[0].name)
         assertFalse(list[0].isDir)
     }
+
+    // ============ 播放地址编码 ============
+
+    @Test
+    fun `播放地址里的中文与空格要编码`() {
+        val src = WebdavSource(
+            id = "1",
+            name = "测试",
+            url = "https://fs.example.com:88/dav/迅雷下载",
+            root = ""
+        )
+        val u = WebdavClient.urlFor(src, "电影/不可饶恕 1992.mp4")
+
+        // 空格必须编码，否则 HttpURLConnection 直接拒绝或服务端当成截断
+        assertFalse("URL 里不应残留空格", u.contains(" "))
+        assertTrue("中文应被编码", u.contains("%E7%94%B5%E5%BD%B1"))
+        assertTrue("应保留扩展名", u.endsWith(".mp4"))
+        // 主机与端口不能被破坏
+        assertTrue(u.startsWith("https://fs.example.com:88/dav/"))
+    }
+
+    @Test
+    fun `已经编码过的地址不会被二次编码`() {
+        val once = "https://a.com/dav/%E7%94%B5%E5%BD%B1/x.mp4"
+        assertEquals(once, WebdavClient.encodeUrl(once))
+    }
+
+    @Test
+    fun `decodeHref 不能把加号变成空格`() {
+        // URLDecoder.decode 会把 '+' 变空格，文件名带加号就会取错路径
+        assertEquals("a+b.mp4", WebdavClient.decodeHref("a+b.mp4"))
+        assertEquals("a b.mp4", WebdavClient.decodeHref("a%20b.mp4"))
+    }
+
+    @Test
+    fun `目录href带编码时也能正确解出中文名`() {
+        val xml = """
+            <D:multistatus xmlns:D="DAV:">
+              <D:response>
+                <D:href>/dav/%E7%94%B5%E5%BD%B1/</D:href>
+                <D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat>
+              </D:response>
+            </D:multistatus>
+        """.trimIndent()
+
+        val list = WebdavClient.parse(xml, "/dav")
+        assertEquals(1, list.size)
+        assertEquals("电影", list[0].name)
+        assertTrue(list[0].isDir)
+    }
 }

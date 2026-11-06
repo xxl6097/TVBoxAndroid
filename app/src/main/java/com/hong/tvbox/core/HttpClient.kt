@@ -86,8 +86,7 @@ object HttpClient {
         }
     }
 
-    /** 下载二进制（爬虫 jar 之类） */
-    suspend fun bytes(
+    /** 下载二进制（爬虫 jar 之类） */    suspend fun bytes(
         url: String,
         headers: Map<String, String>? = null,
         timeoutMs: Long = 30000
@@ -107,6 +106,40 @@ object HttpClient {
             }
         } catch (e: IOException) {
             throw IOException("下载失败：${e.message}", e)
+        }
+    }
+
+    /**
+     * 诊断用：GET 前 2KB，返回「状态码 / Content-Type / 长度 / 开头内容」。
+     *
+     * 用来回答一个很常见的问题：「播放器报 Source error，到底是 404、401，
+     * 还是服务器返回了一张网页？」——只看异常信息是分不出来的。
+     */
+    suspend fun diagnose(
+        url: String,
+        headers: Map<String, String>? = null,
+        timeoutMs: Long = 12000
+    ): String = withContext(Dispatchers.IO) {
+        val builder = Request.Builder()
+            .url(url)
+            .header("User-Agent", UA)
+            .header("Range", "bytes=0-2047")
+
+        headers?.forEach { (k, v) -> builder.header(k, v) }
+
+        try {
+            clientWith(timeoutMs).newCall(builder.build()).execute().use { r ->
+                val ct = r.header("Content-Type") ?: "-"
+                val len = r.header("Content-Length") ?: "-"
+                val body = r.body?.bytes() ?: ByteArray(0)
+                val head = body.take(120).joinToString("") { b ->
+                    val c = b.toInt() and 0xFF
+                    if (c in 32..126) c.toChar().toString() else "."
+                }
+                "HTTP ${r.code} | ct=$ct | len=$len | range=${r.header("Content-Range") ?: "-"} | head=$head"
+            }
+        } catch (e: Exception) {
+            "请求失败：${e.message}"
         }
     }
 

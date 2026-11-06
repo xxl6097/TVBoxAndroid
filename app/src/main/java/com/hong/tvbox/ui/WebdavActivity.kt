@@ -533,6 +533,10 @@ class WebdavActivity : AppCompatActivity() {
     private fun play(src: WebdavSource, dir: String, e: WebdavEntry) {
         val url = WebdavClient.urlFor(src, join(dir, e.name))
 
+        // 起播同时打一发探针：把服务器真实响应（状态码/类型/开头内容）落到
+        // files/wd_probe.txt。播放失败时（尤其「Source error」）不用猜，adb pull 即可定位。
+        probePlayback(src, url)
+
         PlayerActivity.start(
             context = this,
             // 用绝对地址当唯一键：续播时不必再回网盘找文件
@@ -549,8 +553,30 @@ class WebdavActivity : AppCompatActivity() {
         )
     }
 
-    // ============ 编辑源 ============
+    /**
+     * 播放前探针。
+     *
+     * 播放器报「Source error」时，光看异常分不清是 401/404 还是服务器返回了网页。
+     * 这里用和播放器相同的 URL 取 2KB，把状态码、Content-Type、开头内容写进
+     * `files/wd_probe.txt`（adb pull 即可），排查不用再猜。
+     */
+    private fun probePlayback(src: WebdavSource, url: String) {
+        val headers = mutableMapOf<String, String>()
+        WebdavClient.authHeader(src)?.let { headers["Authorization"] = it }
 
+        lifecycleScope.launch {
+            val info = com.hong.tvbox.core.HttpClient.diagnose(url, headers, 8000)
+            android.util.Log.i("TVBoxWD", "play probe: $url -> $info")
+            runCatching {
+                val dir = getExternalFilesDir(null) ?: filesDir
+                java.io.File(dir, "wd_probe.txt").writeText(
+                    "url=$url\nauth=${if (headers.isEmpty()) "none" else "basic"}\n$info\n"
+                )
+            }
+        }
+    }
+
+    // ============ 编辑源 ============
     private fun editSource(existing: WebdavSource?) {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

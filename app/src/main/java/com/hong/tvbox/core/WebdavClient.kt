@@ -1,7 +1,6 @@
 package com.hong.tvbox.core
 
 import android.util.Base64
-import java.net.URLDecoder
 
 /**
  * WebDAV 客户端 - 从鸿蒙 Webdav.ets 移植
@@ -57,7 +56,98 @@ object WebdavClient {
             tail.startsWith("/") -> base + root + tail
             else -> base + root + "/" + tail
         }
-        return full.ifEmpty { base }
+        return encodeUrl(full.ifEmpty { base })
+    }
+
+    /**
+     * 按 RFC 3986 编码 URL 的路径段（结构字符与非 ASCII 分开处理）。
+     *
+     * 为什么必须自己编：OkHttp 会自动把中文转义，所以列目录一直正常；
+     * 但播放走的是 media3 的 DefaultHttpDataSource（底层 HttpURLConnection），
+     * 它不会自动转义 —— 真实极空间上表现为「拿到非视频内容 → Source error」。
+     */
+    fun encodeUrl(url: String): String {
+        val scheme = url.indexOf("://")
+        if (scheme < 0) return url
+        val pathStart = url.indexOf('/', scheme + 3)
+        if (pathStart < 0) return url
+
+        val head = url.substring(0, pathStart)
+        var rest = url.substring(pathStart)
+        var query = ""
+        val q = rest.indexOf('?')
+        if (q >= 0) {
+            query = rest.substring(q)
+            rest = rest.substring(0, q)
+        }
+
+        val encoded = rest.split('/').joinToString("/") { seg ->
+            if (seg.isEmpty()) seg else encodeSegment(seg)
+        }
+        return head + encoded + query
+    }
+
+    /** 保留 URL 里合法的未保留字符；%XX 视为已编码不再二次转义 */
+    private fun encodeSegment(seg: String): String {
+        val sb = StringBuilder()
+        val bytes = seg.toByteArray(Charsets.UTF_8)
+        var i = 0
+        while (i < bytes.size) {
+            val c = bytes[i].toInt() and 0xFF
+            val ch = c.toChar()
+            val keep = ch in 'A'..'Z' || ch in 'a'..'z' || ch in '0'..'9' ||
+                ch == '-' || ch == '_' || ch == '.' || ch == '~' ||
+                ch == '!' || ch == '$' || ch == '&' || ch == '\'' ||
+                ch == '(' || ch == ')' || ch == '*' || ch == '+' ||
+                ch == ',' || ch == ';' || ch == '=' || ch == ':' || ch == '@'
+            if (keep) {
+                sb.append(ch)
+                i++
+            } else if (ch == '%' && i + 2 < bytes.size &&
+                isHex(bytes[i + 1].toInt().toChar()) && isHex(bytes[i + 2].toInt().toChar())
+            ) {
+                // 已经是 %XX，原样保留，避免双重编码
+                sb.append('%').append(bytes[i + 1].toInt().toChar()).append(bytes[i + 2].toInt().toChar())
+                i += 3
+            } else {
+                sb.append('%').append(String.format("%02X", c))
+                i++
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun isHex(c: Char): Boolean =
+        c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F'
+
+    /**
+     * 解 href 里的百分号转义。
+     *
+     * 不能用 URLDecoder：它会把 '+' 变成空格，文件名里带加号就会取错路径。
+     */
+    fun decodeHref(raw: String): String {
+        if (!raw.contains('%')) return raw
+        val out = java.io.ByteArrayOutputStream()
+        val bytes = raw.toByteArray(Charsets.UTF_8)
+        var i = 0
+        while (i < bytes.size) {
+            val ch = bytes[i].toInt().toChar()
+            if (ch == '%' && i + 2 < bytes.size &&
+                isHex(bytes[i + 1].toInt().toChar()) && isHex(bytes[i + 2].toInt().toChar())
+            ) {
+                val hex = "${bytes[i + 1].toInt().toChar()}${bytes[i + 2].toInt().toChar()}"
+                out.write(hex.toInt(16))
+                i += 3
+            } else {
+                out.write(bytes[i].toInt())
+                i++
+            }
+        }
+        return try {
+            out.toByteArray().toString(Charsets.UTF_8)
+        } catch (e: Exception) {
+            raw
+        }
     }
 
     /**
@@ -83,9 +173,10 @@ object WebdavClient {
         }
 
         // 自身条目要按**绝对路径**比对：href 是 "/dav/电影/"，而我们手上的 path 是相对路径 "电影"，
-        // 拿相对路径去比永远不等，根目录就会把自己（dav）也列出来
+        // 拿相对路径去比永远不等，根目录就会把自己（dav）也列出来。
+        // 注意 urlFor 出来后是百分号编码的，要先解码才能和 href（已解码）对比。
         val selfPath = try {
-            java.net.URI(url).path ?: ""
+            decodeHref(java.net.URI(url).rawPath ?: java.net.URI(url).path ?: "")
         } catch (e: Exception) {
             ""
         }
@@ -112,11 +203,8 @@ object WebdavClient {
             val href = tag(b, "href")
             if (href.isEmpty()) return@forEach
 
-            val decoded = try {
-                URLDecoder.decode(href, "UTF-8")
-            } catch (e: Exception) {
-                href
-            }
+            // 解 href 的百分号转义。不能用 URLDecoder（会把 '+' 变空格）
+            val decoded = decodeHref(href)
 
             // 过滤自身条目（服务端会把当前目录自己也返回一条）
             val normalized = decoded.trimEnd('/')

@@ -658,6 +658,12 @@ class PlayerActivity : AppCompatActivity() {
         // WebDAV 等需要 Basic 认证的源，把 Authorization 挂在数据源上，
         // 让播放器带着头去请求，而不是先下载再播。
         val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+            // 部分 NAS / 反代会按 User-Agent 拦截：默认的 ExoPlayerLib/x.x 会被当成
+            // 爬虫，返回一张 HTML 错误页（表现为 Source error）。用浏览器的 UA 最稳。
+            .setUserAgent(
+                "Mozilla/5.0 (Linux; Android 10; TV) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(20_000)
             .setAllowCrossProtocolRedirects(true)
@@ -746,7 +752,14 @@ class PlayerActivity : AppCompatActivity() {
                         switchEpisode(1)
                         return
                     }
-                    showError("播放失败：${error.message}")
+                    // 服务器返回的内容不是视频（不是 4xx/5xx，而是 HTML/文本），
+                    // 这种最常见于地址不对、被 UA 拦截、或需要登录态 —— 给一句能指导用户的话
+                    val hint = when {
+                        error.cause is androidx.media3.exoplayer.source.UnrecognizedInputFormatException ->
+                            "服务器返回的内容不是视频（可能被拦截或地址已失效）"
+                        else -> error.message
+                    }
+                    showError("播放失败：$hint")
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
