@@ -36,11 +36,12 @@ android {
         /**
          * 固定 debug 签名。
          *
-         * CI 每次构建都会临时生成 ~/.android/debug.keystore，导致每次出的包签名都不同，
-         * 用户（和自己测试）无法覆盖安装，只能先卸载。仓库里放一个固定的 debug
-         * 密钥（口令都是 android，公开无风险）即可保证同一签名。
+         * AGP 自带一个名为 debug 的签名配置（指向 ~/.android/debug.keystore），
+         * 但 CI 每次构建都是全新的 runner，那个密钥每次都不一样，导致每次出的包
+         * 签名不同、无法覆盖安装。这里把它指向仓库里固定的密钥（口令都是 android，
+         * 公开无风险），保证连续构建同一签名。
          */
-        create("debug") {
+        getByName("debug") {
             storeFile = rootProject.file("debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
