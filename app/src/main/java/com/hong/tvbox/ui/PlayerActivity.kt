@@ -60,6 +60,16 @@ class PlayerActivity : AppCompatActivity() {
     /** 本轮播放是否已经因错误自动换过线路（避免无限换线） */
     private var autoSwitched = false
 
+    // ---- 画质 ----
+    private val qualityNames = arrayOf("自动", "1080P", "720P", "480P")
+    private var qualityIdx = 0
+    /** 连续起播卡顿次数，达到阈值自动降档 */
+    private var rebufferCount = 0
+    /** 上一次卡顿的时间点，用来判断“连续”卡顿 */
+    private var lastBufferAt = 0L
+    /** 本轮是否已经因弱网自动降过档，避免反复降 */
+    private var autoDowngraded = false
+
     // UI 控件
     private lateinit var loadingView: View
     private lateinit var errorView: View
@@ -75,6 +85,7 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var osdRetryBtn: Button
     private lateinit var osdVia: TextView
     private lateinit var osdMuteBtn: Button
+    private lateinit var osdQualityBtn: Button
     /** 画面正中的一次性提示（±10 秒 / 音量 / 切集），3 米外也看得清 */
     private lateinit var centerTip: TextView
 
@@ -326,6 +337,10 @@ class PlayerActivity : AppCompatActivity() {
         controlRow.addView(osdMuteBtn)
         controlRow.addView(osdButton("音量+") { changeVolume(0.1f) })
 
+        // 画质：HLS 自适应之外，允许手动限高；弱网也会自动降一档
+        osdQualityBtn = osdButton("画质 自动") { cycleQuality() }
+        controlRow.addView(osdQualityBtn)
+
         osdLayout.addView(controlRow)
 
         // 解析来源
@@ -508,6 +523,58 @@ class PlayerActivity : AppCompatActivity() {
         handler.postDelayed(tipRunnable, 900)
     }
 
+    // ============ 画质 ============
+
+    private fun cycleQuality() {
+        qualityIdx = (qualityIdx + 1) % qualityNames.size
+        // 用户手动选了画质，就别再让自动降档插手
+        autoDowngraded = true
+        rebufferCount = 0
+        applyQuality()
+        if (this::osdQualityBtn.isInitialized) {
+            osdQualityBtn.text = "画质 ${qualityNames[qualityIdx]}"
+        }
+        showTip("画质限制：${qualityNames[qualityIdx]}")
+        showOsd()
+    }
+
+    /**
+     * 通过限制最大分辨率来「降档」。
+     * HLS 多码率流本来就由 ExoPlayer 自适应，这里给用户一个上限：
+     * 电视盒子 4K 解码吃力时，锁 1080P/720P 比让它自己乱切稳。
+     */
+    private fun applyQuality() {
+        val p = player ?: return
+        val b = p.trackSelectionParameters.buildUpon()
+        when (qualityIdx) {
+            1 -> b.setMaxVideoSize(1920, 1080).setMaxVideoBitrate(Int.MAX_VALUE)
+            2 -> b.setMaxVideoSize(1280, 720).setMaxVideoBitrate(Int.MAX_VALUE)
+            3 -> b.setMaxVideoSize(854, 480).setMaxVideoBitrate(Int.MAX_VALUE)
+            else -> b.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE).setMaxVideoBitrate(Int.MAX_VALUE)
+        }
+        p.trackSelectionParameters = b.build()
+    }
+
+    /**
+     * 卡顿计数。20 秒内连续缓冲才算「网络不稳」，
+     * 隔很久偶发一次是源站抖动，不该降画质。
+     */
+    private fun noteRebuffer() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        rebufferCount = if (now - lastBufferAt < 20_000) rebufferCount + 1 else 1
+        lastBufferAt = now
+
+        if (!autoDowngraded && qualityIdx == 0 && rebufferCount >= 3) {
+            autoDowngraded = true
+            qualityIdx = 2
+            applyQuality()
+            if (this::osdQualityBtn.isInitialized) {
+                osdQualityBtn.text = "画质 ${qualityNames[qualityIdx]}"
+            }
+            showTip("网络不稳，已自动降到 720P（可在画质里改回）")
+        }
+    }
+
     private fun startPlayback() {
         isResolving = true
         loadingView.visibility = View.VISIBLE
@@ -519,7 +586,16 @@ class PlayerActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                if (isDirectLine) {
+                val spiderSite = configStore.getConfig()?.sites?.find { it.key == siteKey }
+                if (spiderSite != null && spiderSite.type == 3) {
+                    // 爬虫站源：episode.url 其实是剧集 id，要交给 jar 换真实地址
+                    val real = SpiderCms.player(this@PlayerActivity, spiderSite, lineName, episode.url)
+                    if (real.isEmpty()) {
+                        throw Exception(SpiderCms.errorOf(siteKey).ifEmpty { "爬虫没有返回播放地址" })
+                    }
+                    resolvedUrl = real
+                    resolvedVia = "爬虫"
+                } else if (isDirectLine) {
                     // 直连模式：地址本身就是流
                     resolvedUrl = episode.url
                     resolvedVia = "直连"
@@ -621,6 +697,9 @@ class PlayerActivity : AppCompatActivity() {
                         }
                         Player.STATE_BUFFERING -> {
                             isBuffering = true
+                            // 这是「播放中的卡顿」，不是起播缓冲：起播时 isPrepared 还是 false
+                            if (isPrepared) noteRebuffer()
+                            loadingView.visibility = if (isPrepared) View.GONE else View.VISIBLE
                         }
                         Player.STATE_ENDED -> {
                             isPlaying = false

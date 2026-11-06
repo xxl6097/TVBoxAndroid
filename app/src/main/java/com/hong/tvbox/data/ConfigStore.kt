@@ -112,12 +112,12 @@ class ConfigStore(context: Context) {
         val sites = config.sites.map { site ->
             site.copy(
                 usable = when (site.type) {
-                    3 -> false  // 爬虫型，暂不支持
-                    0, 1, 4 -> site.api.startsWith("http")
+                    // type=3 是爬虫 jar，能下载就能用（运行时见 SpiderCms）
+                    0, 1, 3, 4 -> site.api.startsWith("http")
                     else -> false
                 },
                 reason = when {
-                    site.type == 3 -> "需爬虫运行时（DexClassLoader），待实现"
+                    site.type == 3 && !site.api.startsWith("http") -> "爬虫站源缺少 jar 地址"
                     site.type in listOf(0, 1, 4) && !site.api.startsWith("http") -> "接口地址不是 HTTP"
                     site.type !in listOf(0, 1, 3, 4) -> "暂不支持的类型 type=${site.type}"
                     else -> ""

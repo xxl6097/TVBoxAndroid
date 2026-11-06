@@ -86,6 +86,30 @@ object HttpClient {
         }
     }
 
+    /** 下载二进制（爬虫 jar 之类） */
+    suspend fun bytes(
+        url: String,
+        headers: Map<String, String>? = null,
+        timeoutMs: Long = 30000
+    ): ByteArray = withContext(Dispatchers.IO) {
+        val builder = Request.Builder()
+            .url(url)
+            .header("User-Agent", UA)
+
+        headers?.forEach { (k, v) -> builder.header(k, v) }
+
+        try {
+            clientWith(timeoutMs).newCall(builder.build()).execute().use { response ->
+                if (response.code !in 200..299) {
+                    throw IOException("下载失败 HTTP ${response.code}")
+                }
+                response.body?.bytes() ?: ByteArray(0)
+            }
+        } catch (e: IOException) {
+            throw IOException("下载失败：${e.message}", e)
+        }
+    }
+
     /** WebDAV PROPFIND（OkHttp 支持任意方法名） */
     suspend fun propfind(
         url: String,

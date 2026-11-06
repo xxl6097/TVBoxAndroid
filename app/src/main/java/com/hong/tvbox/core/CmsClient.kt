@@ -196,8 +196,35 @@ class CmsClient(private val site: Site) {
     }
     
     // ============ 公共入口 ============
-    
+
+    /** 爬虫站源需要 Context，统一从 Application 取 */
+    private fun context(): android.content.Context = com.hong.tvbox.TvBoxApp.appContext
+
+    /** 把 "&area=大陆&year=2025" 还原成 HashMap 给爬虫用 */
+    private fun extraMap(): HashMap<String, String> {
+        val map = HashMap<String, String>()
+        extra.split("&").forEach { pair ->
+            val i = pair.indexOf('=')
+            if (i > 0) {
+                try {
+                    map[pair.substring(0, i)] =
+                        java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
+                } catch (e: Exception) {
+                    // 忽略非法编码
+                }
+            }
+        }
+        return map
+    }
+
     suspend fun categories(): List<Category> = withContext(Dispatchers.IO) {
+        // type=3：爬虫 jar，走反射调用
+        if (site.type == 3) {
+            val cats = SpiderCms.categories(context(), site).toMutableList()
+            if (cats.isNotEmpty()) cats.add(0, Category("", "全部"))
+            return@withContext cats
+        }
+
         val txt = fetch(u("ac=list"), TTL_CAT, 15000)
         
         if (site.type == 0 || looksXml(txt)) {
@@ -248,6 +275,10 @@ class CmsClient(private val site: Site) {
     }
     
     suspend fun list(tid: String, page: Int): VodPage = withContext(Dispatchers.IO) {
+        if (site.type == 3) {
+            return@withContext SpiderCms.list(context(), site, tid, page, extraMap())
+        }
+
         val q = "ac=videolist&t=${URLEncoder.encode(tid, "UTF-8")}&pg=$page$extra"
         val txt = fetch(u(q), TTL_LIST, 18000)
         
@@ -355,6 +386,10 @@ class CmsClient(private val site: Site) {
     }
 
     suspend fun detail(id: String): Vod = withContext(Dispatchers.IO) {
+        if (site.type == 3) {
+            return@withContext SpiderCms.detail(context(), site, id)
+        }
+
         val q = "ac=detail&ids=${URLEncoder.encode(id, "UTF-8")}"
         val txt = fetch(u(q), TTL_DETAIL, 18000)
         
@@ -369,6 +404,10 @@ class CmsClient(private val site: Site) {
     }
     
     suspend fun search(kw: String): List<Vod> = withContext(Dispatchers.IO) {
+        if (site.type == 3) {
+            return@withContext SpiderCms.search(context(), site, kw)
+        }
+
         val e = URLEncoder.encode(kw, "UTF-8")
         var items = try {
             val txt = HttpClient.text(u("ac=videolist&wd=$e"), timeoutMs = 12000)

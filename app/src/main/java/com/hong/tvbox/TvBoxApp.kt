@@ -21,11 +21,16 @@ class TvBoxApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        appContext = this
         installCrashHandler(this)
     }
 
     companion object {
         private const val FILE_NAME = "crash.log"
+
+        /** 全局 Application Context：爬虫站源 init 需要，避免各处传参 */
+        lateinit var appContext: Context
+            private set
 
         fun crashFile(context: Context): File = File(context.filesDir, FILE_NAME)
 

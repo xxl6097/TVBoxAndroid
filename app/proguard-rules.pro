@@ -41,6 +41,25 @@
 -keep class com.google.zxing.** { *; }
 -dontwarn com.google.zxing.**
 
+# ===== 爬虫站源（type=3）=====
+# 基类由 jar 继承，名字必须要保住；反射调用的方法也要保住，否则 R8 会改签名
+-keep class com.github.catvod.crawler.** { *; }
+-keep class * extends com.github.catvod.crawler.Spider { *; }
+-keepclassmembers class * extends com.github.catvod.crawler.Spider {
+    public <init>(...);
+    public void init(android.content.Context, java.lang.String);
+    public java.lang.String homeContent(boolean);
+    public java.lang.String homeVideoContent();
+    public java.lang.String categoryContent(java.lang.String, java.lang.String, boolean, java.util.HashMap);
+    public java.lang.String detailContent(java.util.List);
+    public java.lang.String searchContent(java.lang.String, boolean);
+    public java.lang.String searchContent(java.lang.String, boolean, java.lang.String);
+    public java.lang.String playerContent(java.lang.String, java.lang.String, java.util.List);
+    public boolean isVideoFormat(java.lang.String);
+    public boolean manualVideoCheck();
+    public void destroy();
+}
+
 # ===== Kotlin 协程 =====
 -dontwarn kotlinx.coroutines.**
 -keepclassmembers class kotlinx.coroutines.** { volatile <fields>; }

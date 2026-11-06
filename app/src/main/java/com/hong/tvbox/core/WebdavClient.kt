@@ -25,6 +25,12 @@ object WebdavClient {
         return ext.isNotEmpty() && VIDEO_EXT.contains(ext)
     }
 
+    /** 图片文件（用作海报/封面） */
+    fun isImage(name: String): Boolean {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return ext in listOf("jpg", "jpeg", "png", "webp", "bmp")
+    }
+
     /** Basic 认证头；没有账号密码时返回 null */
     fun authHeader(source: WebdavSource): String? {
         if (source.user.isEmpty() && source.pass.isEmpty()) return null

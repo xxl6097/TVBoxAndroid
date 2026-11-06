@@ -34,6 +34,7 @@ class WebdavActivity : AppCompatActivity() {
     private lateinit var pathView: TextView
     private lateinit var statusView: TextView
     private lateinit var listContainer: LinearLayout
+    private lateinit var gridContainer: GridLayout
 
     private var source: WebdavSource? = null
     /** 浏览路径栈（相对挂载根），空栈表示根目录 */
@@ -100,11 +101,31 @@ class WebdavActivity : AppCompatActivity() {
         root.addView(statusView)
 
         val scroll = ScrollView(this)
+
+        // 两个容器叠在一起：源列表用行，浏览目录用海报网格
+        val body = FrameLayout(this)
         listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroll.addView(listContainer)
+        gridContainer = GridLayout(this).apply {
+            columnCount = 4
+            visibility = View.GONE
+        }
+        body.addView(listContainer)
+        body.addView(gridContainer)
+
+        scroll.addView(body)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         setContentView(root)
+    }
+
+    private fun showListMode() {
+        listContainer.visibility = View.VISIBLE
+        gridContainer.visibility = View.GONE
+    }
+
+    private fun showGridMode() {
+        listContainer.visibility = View.GONE
+        gridContainer.visibility = View.VISIBLE
     }
 
     private fun chip(label: String, onClick: () -> Unit): TextView {
@@ -139,6 +160,7 @@ class WebdavActivity : AppCompatActivity() {
         source = null
         paths.clear()
         listContainer.removeAllViews()
+        showListMode()
         titleView.text = "网盘"
         pathView.text = ""
         statusView.text = ""
@@ -212,33 +234,140 @@ class WebdavActivity : AppCompatActivity() {
         titleView.text = src.name.ifEmpty { "网盘" }
         pathView.text = if (path.isEmpty()) "/" else "/$path"
         statusView.text = "正在列目录…"
-        listContainer.removeAllViews()
+        showGridMode()
+        gridContainer.removeAllViews()
 
         lifecycleScope.launch {
             try {
                 val entries = WebdavClient.list(src, path)
                 val dirs = entries.filter { it.isDir }
                 val videos = entries.filter { !it.isDir && WebdavClient.isVideo(it.name) }
+                val images = entries.filter { !it.isDir && WebdavClient.isImage(it.name) }
+
+                // 封面索引：同名图片优先（xxx.mp4 ↔ xxx.jpg）
+                val covers = mutableMapOf<String, String>()
+                images.forEach { img ->
+                    covers[img.name.substringBeforeLast('.')] = img.name
+                }
+                val folderCover = images.firstOrNull {
+                    val base = it.name.substringBeforeLast('.').lowercase()
+                    base == "folder" || base == "poster" || base == "cover" || base == "fanart"
+                }?.name
 
                 statusView.text = if (entries.isEmpty()) {
                     "这个目录是空的"
                 } else {
-                    "${dirs.size} 个文件夹 · ${videos.size} 个视频（其他文件已过滤）"
+                    "${dirs.size} 个文件夹 · ${videos.size} 个视频" +
+                            if (images.isNotEmpty()) " · ${images.size} 张图作封面" else ""
                 }
 
                 dirs.forEach { e ->
-                    listContainer.addView(entryRow(e) {
-                        paths.addLast(path)
-                        browse(join(path, e.name))
-                    })
+                    gridContainer.addView(
+                        card(src, path, e, folderCover) {
+                            paths.addLast(path)
+                            browse(join(path, e.name))
+                        }
+                    )
                 }
+
                 videos.forEach { e ->
-                    listContainer.addView(entryRow(e) { play(src, path, e) })
+                    val cover = covers[e.name.substringBeforeLast('.')]
+                        ?: if (videos.size == 1) folderCover else null
+                    gridContainer.addView(
+                        card(src, path, e, cover) { play(src, path, e) }
+                    )
                 }
             } catch (e: Exception) {
                 statusView.text = "列目录失败：${e.message}"
             }
         }
+    }
+
+    /**
+     * 海报卡片：有同名图片就显示封面，没有就退化成「文件夹/影片」色块。
+     * WebDAV 本身没有元数据，靠同名图 + folder.jpg 约定已是能做到的最好程度。
+     */
+    private fun card(
+        src: WebdavSource,
+        dirPath: String,
+        e: WebdavEntry,
+        coverName: String?,
+        onClick: () -> Unit
+    ): View {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(8))
+        }
+
+        val img = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(Color.parseColor("#2A272E"))
+        }
+
+        val coverBox = FrameLayout(this)
+        coverBox.addView(img, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(160)
+        ))
+
+        var loaded = false
+        if (coverName != null) {
+            val url = WebdavClient.urlFor(src, join(dirPath, coverName))
+            val auth = WebdavClient.authHeader(src)
+            val model = if (auth != null) {
+                com.bumptech.glide.load.model.GlideUrl(
+                    url,
+                    com.bumptech.glide.load.model.LazyHeaders.Builder()
+                        .addHeader("Authorization", auth)
+                        .build()
+                )
+            } else url
+
+            com.bumptech.glide.Glide.with(this).load(model).centerCrop().into(img)
+            loaded = true
+        }
+
+        if (!loaded) {
+            // 没有封面就叠一个类型角标，别留一块纯黑
+            coverBox.addView(TextView(this).apply {
+                text = if (e.isDir) "📁" else "🎬"
+                textSize = 30f
+                gravity = Gravity.CENTER
+            }, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(160)
+            ))
+        }
+
+        card.addView(coverBox, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(160)
+        ))
+
+        card.addView(TextView(this).apply {
+            text = e.name
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, dp(6), 0, 0)
+        })
+
+        if (!e.isDir) {
+            card.addView(TextView(this).apply {
+                text = WebdavClient.humanSize(e.size)
+                textSize = 11f
+                setTextColor(TvUi.DIM)
+            })
+        }
+
+        val spec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f)
+        card.layoutParams = GridLayout.LayoutParams(spec, spec).also {
+            it.width = 0
+            it.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            it.setMargins(dp(6), dp(6), dp(6), dp(8))
+        }
+
+        card.setOnClickListener { onClick() }
+        card.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1.04f)
+        return card
     }
 
     private fun join(path: String, name: String): String {
