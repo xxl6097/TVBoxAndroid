@@ -1,6 +1,7 @@
 package com.hong.tvbox.ui
 
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.MotionEvent
 import android.view.View
 
@@ -40,10 +41,22 @@ fun View.onTvFocus(
 ) {
     isFocusable = true
     isFocusableInTouchMode = true
-    setBackgroundColor(normalColor)
+
+    val d = resources.displayMetrics.density
+
+    // 只用底色深浅区分焦点在电视上几乎看不出来（隔着 3 米），
+    // 必须加一圈高对比描边，用户才知道遥控器现在指着谁
+    fun bg(color: Int, focused: Boolean) = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = 10f * d
+        setColor(color)
+        if (focused) setStroke((2.5f * d).toInt(), TvUi.SELECTED)
+    }
+
+    background = bg(normalColor, false)
 
     setOnFocusChangeListener { v, hasFocus ->
-        v.setBackgroundColor(if (hasFocus) focusColor else normalColor)
+        v.background = bg(if (hasFocus) focusColor else normalColor, hasFocus)
         if (scale != 1f) {
             v.animate()
                 .scaleX(if (hasFocus) scale else 1f)
@@ -58,8 +71,8 @@ fun View.onTvFocus(
     setOnHoverListener { v, event ->
         if (!v.hasFocus()) {
             when (event.actionMasked) {
-                MotionEvent.ACTION_HOVER_ENTER -> v.setBackgroundColor(focusColor)
-                MotionEvent.ACTION_HOVER_EXIT -> v.setBackgroundColor(normalColor)
+                MotionEvent.ACTION_HOVER_ENTER -> v.background = bg(focusColor, true)
+                MotionEvent.ACTION_HOVER_EXIT -> v.background = bg(normalColor, false)
             }
         }
         false

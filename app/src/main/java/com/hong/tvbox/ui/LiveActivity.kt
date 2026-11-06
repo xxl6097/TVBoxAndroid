@@ -351,7 +351,7 @@ class LiveActivity : AppCompatActivity() {
 
         card.setOnClickListener { play(ch) }
         card.onTvFocus(
-            normalColor = Color.TRANSPARENT,
+            normalColor = TvUi.CARD,
             focusColor = TvUi.CARD_HI,
             scale = 1.04f
         )
