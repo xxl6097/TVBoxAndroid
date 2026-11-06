@@ -52,7 +52,9 @@ object PlaybackResumer {
                     episodeIndex = epIndex,
                     isDirect = lines[lineIndex].direct,
                     siteApi = site.api,
-                    startPosition = h.position
+                    startPosition = h.position,
+                    vodPic = h.vodPic.ifEmpty { vod.pic },
+                    lineIndex = lineIndex
                 )
             } catch (e: Exception) {
                 onError("续播失败：${e.message}")

@@ -57,6 +57,10 @@ class PlayerActivity : AppCompatActivity() {
     private var isLiveMode = false
     /** WebDAV 等需要认证的源，播放请求要带 Authorization */
     private var authHeader = ""
+    /** 海报地址与线路索引：写观看历史时要用，否则「继续观看」没封面、续播还会串线路 */
+    private var vodPic = ""
+    private var lineIndex = 0
+
     /** 本轮播放是否已经因错误自动换过线路（避免无限换线） */
     private var autoSwitched = false
 
@@ -111,6 +115,8 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_START_POS = "start_pos"
         const val EXTRA_IS_LIVE = "is_live"
         const val EXTRA_AUTH = "auth_header"
+        const val EXTRA_VOD_PIC = "vod_pic"
+        const val EXTRA_LINE_INDEX = "line_index"
 
         fun start(
             context: Context,
@@ -124,7 +130,9 @@ class PlayerActivity : AppCompatActivity() {
             siteApi: String,
             startPosition: Long = 0L,
             isLive: Boolean = false,
-            authHeader: String = ""
+            authHeader: String = "",
+            vodPic: String = "",
+            lineIndex: Int = 0
         ) {
             val intent = Intent(context, PlayerActivity::class.java).apply {
                 putExtra(EXTRA_VOD_ID, vodId)
@@ -139,6 +147,8 @@ class PlayerActivity : AppCompatActivity() {
                 putExtra(EXTRA_START_POS, startPosition)
                 putExtra(EXTRA_IS_LIVE, isLive)
                 putExtra(EXTRA_AUTH, authHeader)
+                putExtra(EXTRA_VOD_PIC, vodPic)
+                putExtra(EXTRA_LINE_INDEX, lineIndex)
             }
             context.startActivity(intent)
         }
@@ -164,6 +174,8 @@ class PlayerActivity : AppCompatActivity() {
         pendingSeek = intent.getLongExtra(EXTRA_START_POS, 0L)
         isLiveMode = intent.getBooleanExtra(EXTRA_IS_LIVE, false)
         authHeader = intent.getStringExtra(EXTRA_AUTH) ?: ""
+        vodPic = intent.getStringExtra(EXTRA_VOD_PIC) ?: ""
+        lineIndex = intent.getIntExtra(EXTRA_LINE_INDEX, 0)
 
         val epUrls = intent.getStringArrayExtra(EXTRA_EP_URLS) ?: arrayOf()
         val epNames = intent.getStringArrayExtra(EXTRA_EP_NAMES) ?: arrayOf()
@@ -817,7 +829,8 @@ class PlayerActivity : AppCompatActivity() {
                     vodId = vodId,
                     siteKey = siteKey,
                     vodName = vodName,
-                    lineIndex = 0,
+                    vodPic = vodPic,
+                    lineIndex = lineIndex,
                     episodeIndex = currentEpisodeIndex,
                     episodeName = allEpisodes.getOrNull(currentEpisodeIndex)?.name ?: "",
                     position = p.currentPosition,
