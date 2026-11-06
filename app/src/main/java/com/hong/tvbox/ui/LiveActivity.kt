@@ -17,7 +17,10 @@ import com.hong.tvbox.core.Episode
 import com.hong.tvbox.core.LiveClient
 import com.hong.tvbox.core.LiveDir
 import com.hong.tvbox.data.ConfigStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
@@ -368,11 +371,14 @@ class LiveActivity : AppCompatActivity() {
         lifecycleScope.launch {
             var done = 0
             targets.chunked(6).forEach { batch ->
-                val tasks = batch.map { ch ->
-                    async { ch to LiveClient.probe(ch.url) }
+                val results = coroutineScope {
+                    batch.map { ch ->
+                        async(Dispatchers.IO) { ch to LiveClient.probe(ch.url) }
+                    }.awaitAll()
                 }
-                tasks.forEach { t ->
-                    val (ch, ok) = t.await()
+                results.forEach { pair ->
+                    val ch = pair.first
+                    val ok = pair.second
                     if (!ok) dead.add(ch.name)
                     done++
                 }
