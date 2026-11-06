@@ -7,11 +7,25 @@
 
 ```bash
 # 本地构建（需 Android SDK + JDK 17）
-./gradlew assembleDebug
-# 产物：app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleDebug          # 8.3 MB，可直接安装
+./scripts/gen-keystore.sh        # 生成签名密钥（可选，用于正式包）
+./gradlew assembleRelease        # R8 混淆后 3.7 MB
 ```
 
-已产出验证版本：`dist/app-debug.apk`（7.9 MB，debug 签名，minSdk 21）。
+## 功能一览
+
+| 模块 | 说明 |
+|---|---|
+| 点播 | 站源切换、分类胶囊、筛选（地区/年份）、6 列海报网格、翻页；父分类自动聚合子分类 |
+| 直播 | m3u/txt 解析、分组树、频道探活（失效标灰）、多源切换、多线路起播 |
+| 直连 | 粘贴 m3u8/mp4 直接播，保留最近 12 条 |
+| 网盘 | WebDAV（极空间/群晖/AList）：源增删改、目录浏览、带 Basic 认证播放 |
+| 搜索 | 最多 18 站分批并发，按站源分组展示，搜索历史 |
+| 播放 | ExoPlayer；遥控器按键（±10s/±60s/播放暂停）、音量/静音、续播定位、剧集正倒序 |
+| 收藏/历史 | 本地持久化，历史带进度条，点击一键续播 |
+| 设置 | 订阅/配置导入、直播源、站源开关、测速排行、扫码录入、手动抓取 |
+| 抓取 | 每 6 小时自动抓各站最新，首页「最近更新」 |
+| 合规 | 首启隐私政策；明文 HTTP 白名单；仅网络权限 |
 
 ## 项目结构
 
@@ -57,26 +71,18 @@ TVBoxAndroid/
 
 ## 移植进度
 
-### ✅ 已完成（100%）
-- [x] 项目骨架创建
-- [x] HTTP 客户端（HttpClient.kt）
-- [x] 数据模型（Model.kt）
-- [x] CMS 协议客户端（CmsClient.kt）
-- [x] 数据存储层（ConfigStore / HistoryStore / FavoriteStore）
-- [x] UI 界面（Leanback Fragment）
-- [x] 播放器集成（ExoPlayer）
-- [x] 搜索功能
-- [x] 收藏与历史（数据层）
-- [x] 主浏览页（MainBrowseFragment）
-- [x] 详情页（DetailActivity）
-- [x] 播放器页（PlayerActivity）
+### ✅ 已完成
+- 核心协议层：HTTP / CMS（XML+JSON）/ 播放地址解析 / 直播解析 / WebDAV
+- 数据层：配置、历史、收藏、订阅直播源、直连记录、抓取结果、搜索历史
+- UI：Leanback 首页、点播、详情、播放、搜索、收藏、历史、设置、直播、直连、网盘
+- 遥控器：方向键焦点高亮、确定/左右±10s/上下±60s/媒体键、音量与静音
+- 合规与发布：首启隐私政策、明文 HTTP 白名单、图标与 banner、release 签名与 R8
 
-### ⚠️  待优化
-- [ ] 播放地址解析（ResolveClient.kt）- 非直连链接需要
-- [ ] 配置导入 UI - 当前需通过 API 导入
-- [ ] 直播功能
-- [ ] 设置页面
-- [ ] 图片加载（Glide 集成）
+### ⚠️ 已知差异 / 未做
+- 爬虫型站源（type=3）仍不可用：需要在 Android 上加载 jar/dex，尚未实现
+- 首页没有骨架屏与「继续观看」进度条（列表卡片是 Leanback 的 ImageCardView）
+- 直播未做画质自适应（ABR）与卡顿自动降档
+- 网盘只做「列目录 + 播放」，没有海报墙识别与缩略图
 
 ## 核心特性
 
