@@ -55,6 +55,8 @@ class PlayerActivity : AppCompatActivity() {
     private var pendingSeek: Long = 0L
     /** 直播模式：不记观看历史，上/下一集改叫上/下一线路 */
     private var isLiveMode = false
+    /** WebDAV 等需要认证的源，播放请求要带 Authorization */
+    private var authHeader = ""
 
     // UI 控件
     private lateinit var loadingView: View
@@ -95,6 +97,7 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_EP_NAMES = "ep_names"
         const val EXTRA_START_POS = "start_pos"
         const val EXTRA_IS_LIVE = "is_live"
+        const val EXTRA_AUTH = "auth_header"
 
         fun start(
             context: Context,
@@ -107,7 +110,8 @@ class PlayerActivity : AppCompatActivity() {
             isDirect: Boolean,
             siteApi: String,
             startPosition: Long = 0L,
-            isLive: Boolean = false
+            isLive: Boolean = false,
+            authHeader: String = ""
         ) {
             val intent = Intent(context, PlayerActivity::class.java).apply {
                 putExtra(EXTRA_VOD_ID, vodId)
@@ -121,6 +125,7 @@ class PlayerActivity : AppCompatActivity() {
                 putExtra(EXTRA_EP_NAMES, allEpisodes.map { it.name }.toTypedArray())
                 putExtra(EXTRA_START_POS, startPosition)
                 putExtra(EXTRA_IS_LIVE, isLive)
+                putExtra(EXTRA_AUTH, authHeader)
             }
             context.startActivity(intent)
         }
@@ -145,6 +150,7 @@ class PlayerActivity : AppCompatActivity() {
         siteApi = intent.getStringExtra(EXTRA_SITE_API) ?: ""
         pendingSeek = intent.getLongExtra(EXTRA_START_POS, 0L)
         isLiveMode = intent.getBooleanExtra(EXTRA_IS_LIVE, false)
+        authHeader = intent.getStringExtra(EXTRA_AUTH) ?: ""
 
         val epUrls = intent.getStringArrayExtra(EXTRA_EP_URLS) ?: arrayOf()
         val epNames = intent.getStringArrayExtra(EXTRA_EP_NAMES) ?: arrayOf()
@@ -546,7 +552,19 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         player?.release()
-        player = ExoPlayer.Builder(this).build().also { p ->
+
+        // WebDAV 等需要 Basic 认证的源：把 Authorization 交给数据源工厂，
+        // 不要先下载再播，直接让播放器带头上阵
+        val builder = ExoPlayer.Builder(this)
+        if (authHeader.isNotEmpty()) {
+            val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+                .setDefaultRequestProperties(mapOf("Authorization" to authHeader))
+            builder.setMediaSourceFactory(
+                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpFactory)
+            )
+        }
+
+        player = builder.build().also { p ->
             playerView.player = p
 
             p.addListener(object : Player.Listener {

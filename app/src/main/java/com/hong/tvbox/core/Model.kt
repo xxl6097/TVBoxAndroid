@@ -110,6 +110,27 @@ data class LiveDir(
     var channels: MutableList<Channel> = mutableListOf()
 )
 
+// ============ WebDAV 网盘 ============
+
+/** 一个 WebDAV 挂载源 */
+data class WebdavSource(
+    var id: String = "",
+    var name: String = "",
+    var url: String = "",       // 如 http://192.168.1.10:5244/dav
+    var user: String = "",
+    var pass: String = "",
+    var root: String = ""       // 挂载根路径，空表示从根浏览
+)
+
+/** PROPFIND 解析出的一个条目 */
+data class WebdavEntry(
+    var href: String = "",      // 已 URL 解码的相对路径
+    var name: String = "",
+    var isDir: Boolean = false,
+    var size: Long = 0,
+    var mtime: String = ""
+)
+
 data class Line(
     var name: String = "",
     var direct: Boolean = false,    // 是否可直连播放

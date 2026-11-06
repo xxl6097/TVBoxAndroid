@@ -7,6 +7,7 @@ import com.hong.tvbox.core.Config
 import com.hong.tvbox.core.LiveSource
 import com.hong.tvbox.core.Site
 import com.hong.tvbox.core.Vod
+import com.hong.tvbox.core.WebdavSource
 
 /**
  * 配置存储 - 从 ArkTS Store.ets 移植
@@ -29,6 +30,7 @@ class ConfigStore(context: Context) {
         private const val KEY_CRAWL_AT = "crawl_at"
         private const val KEY_CRAWL_SUMMARY = "crawl_summary"
         private const val KEY_KEYWORDS = "search_keywords"
+        private const val KEY_WEBDAV_LIST = "webdav_list"
         private const val KEY_LAST_UPDATE = "last_update"
     }
     
@@ -268,6 +270,35 @@ class ConfigStore(context: Context) {
 
     fun clearKeywords() {
         prefs.edit().remove(KEY_KEYWORDS).apply()
+    }
+
+    // ---------- WebDAV 网盘 ----------
+
+    fun getWebdavSources(): List<WebdavSource> {
+        val json = prefs.getString(KEY_WEBDAV_LIST, null) ?: return emptyList()
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<WebdavSource>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** 新增或按 id 覆盖保存一个 WebDAV 源 */
+    fun saveWebdavSource(src: WebdavSource) {
+        val list = getWebdavSources().toMutableList()
+        val id = src.id.ifEmpty { "wd_${System.currentTimeMillis()}" }
+        val fixed = src.copy(id = id)
+
+        val idx = list.indexOfFirst { it.id == id }
+        if (idx >= 0) list[idx] = fixed else list.add(0, fixed)
+
+        prefs.edit().putString(KEY_WEBDAV_LIST, gson.toJson(list)).apply()
+    }
+
+    fun removeWebdavSource(id: String) {
+        val list = getWebdavSources().filter { it.id != id }
+        prefs.edit().putString(KEY_WEBDAV_LIST, gson.toJson(list)).apply()
     }
     
     /**
