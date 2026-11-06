@@ -181,3 +181,53 @@ adb reverse tcp:18080 tcp:18080
 `WebdavClient.list` 会把最近一次 PROPFIND 响应写到
 `/sdcard/Android/data/com.hong.tvbox/files/propfind_last.xml`，
 换其它 NAS（群晖/AList）遇到目录判定异常时，`adb pull` 出来看字段即可。
+
+---
+
+# 第五轮：网盘链路完整验收（真实极空间）
+
+## 关键发现
+
+用应用内探针（`files/wd_probe.txt`）+ 落盘的 `propfind_last.xml` 逐条比对，确认了极空间的真实语义：
+
+| 条目 | collection | 长度 | Content-Type | 实际 |
+|---|---|---|---|---|
+| `凡人修仙传重返天南06.mp4/` | true | — | — | **目录** |
+| `不可饶恕-1992_….mp4/` | true | — | — | **目录** |
+| `异星战境 Atlas` | false | 2.2 GB | `video/mp4` | **视频（无后缀）** |
+
+结论：`xxx.mp4` 是迅雷下载留下的「一片一目录」，里面才是真文件；
+而能直接播的 `异星战境 Atlas` 反倒没有扩展名。
+所以既不能按扩展名判文件，也不能按 collection 判目录，只能以元数据为准。
+
+## 已修复并验证
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 目录/文件判定 | ✅ | `/电影` 显示「4 个文件夹 · 1 个视频」，文件夹 📁、视频 🎬 |
+| 子目录内容 | ✅ | 进 `不可饶恕-1992….mp4` → 里面 1 个视频 1.4 GB，可播 |
+| 网盘播放 | ✅ | `异星战境 Atlas` 正常出画（Netflix 片头），时间轴 2:00:05 |
+| 播放器键位/OSD | ✅ | 右键 4 次跳到 01:04；OSD 九按钮齐全；标题不重复 |
+| 写入观看历史 | ✅ | 退出后首页「继续观看」出现该片 + 进度条 |
+| 网盘「最近观看」 | ✅ | 显示「异星战境 Atlas / 看到 1:13 / 120:05」+ 进度条 |
+| 断点续播 | ✅ | 从「最近观看」点进去，起播位置正是 01:13 |
+
+## 判定逻辑（最终版，`WebdavClient.parse`）
+
+```
+Content-Type 为 video/audio/image → 文件
+Content-Length > 0               → 文件
+href 带尾斜杠 或 resourcetype=collection → 目录
+其余                              → 文件
+```
+播放列表用 `WebdavClient.isPlayable()`：目录不可播；有扩展名**或** video/audio 类型即可播。
+
+## 附带优化
+
+- 首页「继续观看」副标题：原来网盘记录会显示两行相同的片名，改为「看到 1:13 / 2:00:05」
+- 网盘「最近观看」时长：`120:05` → `2:00:05`
+
+## 环境备注
+
+模拟器 adb 极不稳定：本轮 `push`/`install` 多次被 SIGTERM，最终 `Connection refused`（进程退出）。
+装包请用 `adb push` + `adb shell pm install -r -t`，不要用 `adb install`（更容易卡死）。
