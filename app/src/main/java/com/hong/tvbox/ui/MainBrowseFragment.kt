@@ -28,8 +28,8 @@ class MainBrowseFragment : BrowseSupportFragment() {
     private val rowsAdapter = ArrayObjectAdapter(ListRowPresenter())
     /** 防重入：抓取进行中再次 onResume 不要并发跑第二轮 */
     private var crawlRunning = false
-    /** 首页加载态（骨架/转圈），站源内容全部回来后隐藏 */
-    private val progressManager = ProgressBarManager()
+    /** 「加载中」占位行的位置，-1 表示没有（Leanback 这个版本没有可用的 ProgressBarManager） */
+    private var loadingRowIndex = -1
     private var pendingSites = 0
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
@@ -45,9 +45,6 @@ class MainBrowseFragment : BrowseSupportFragment() {
         brandColor = Color.parseColor("#FFFFFF")
         searchAffordanceColor = Color.parseColor("#FFEB3B")
         adapter = rowsAdapter
-
-        // 加载态：首屏和各站内容回来之前转圈，避免只有一行功能入口的空白感
-        setProgressBarManager(progressManager)
 
         // 搜索图标点击
         setOnSearchClickedListener {
@@ -73,6 +70,9 @@ class MainBrowseFragment : BrowseSupportFragment() {
     private fun loadContent() {
         val config = configStore.getConfig()
 
+        // 行列表刚被清空，占位行索引也要一起复位
+        loadingRowIndex = -1
+
         // 功能入口行必须最先加：没有配置时用户正是靠这一行的「设置」去导入，
         // 之前把它放在配置判断之后，导致首启页只有一段说明文字、进不去设置，形成死锁
         addFunctionRow()
@@ -92,7 +92,7 @@ class MainBrowseFragment : BrowseSupportFragment() {
         val sites = configStore.getEnabledSiteList()
         if (sites.isNotEmpty()) {
             pendingSites = sites.size
-            if (isAdded && view != null) progressManager.show()
+            showLoadingRow()
         }
         sites.forEach { site ->
             loadSiteContent(site)
@@ -183,6 +183,30 @@ class MainBrowseFragment : BrowseSupportFragment() {
         rowsAdapter.add(ListRow(header, adapter))
     }
 
+    /**
+     * 加载占位行。
+     *
+     * 站源多的时候首屏要等 3~5 秒，之前这段时间只有一行「功能」，
+     * 看起来像加载失败。这里插一行提示，等所有站源回来再摘掉。
+     */
+    private fun showLoadingRow() {
+        if (loadingRowIndex >= 0) return
+        val adapter = ArrayObjectAdapter(StringPresenter())
+        adapter.add("正在加载站源内容…")
+
+        loadingRowIndex = rowsAdapter.size()
+        val header = HeaderItem(loadingRowIndex.toLong(), "加载中")
+        rowsAdapter.add(ListRow(header, adapter))
+    }
+
+    private fun hideLoadingRow() {
+        val idx = loadingRowIndex
+        loadingRowIndex = -1
+        if (idx >= 0 && idx < rowsAdapter.size()) {
+            rowsAdapter.removeItems(idx, 1)
+        }
+    }
+
     private fun loadSiteContent(site: Site) {
         lifecycleScope.launch {
             try {
@@ -203,11 +227,11 @@ class MainBrowseFragment : BrowseSupportFragment() {
             } catch (e: Exception) {
                 // 站源加载失败，跳过
             } finally {
-                // 最后一个站源回来就收起加载态（含失败的情况，否则会一直转圈）
+                // 最后一个站源回来就收起加载行（含失败的情况，否则会一直显示"加载中"）
                 pendingSites--
                 if (pendingSites <= 0) {
                     pendingSites = 0
-                    if (isAdded) progressManager.hide()
+                    hideLoadingRow()
                 }
             }
         }

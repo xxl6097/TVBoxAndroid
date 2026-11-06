@@ -114,6 +114,10 @@ class HistoryCardPresenter : Presenter() {
         }
     }
 
+    override fun onUnbindViewHolder(viewHolder: ViewHolder) {
+        // 卡片里的图由 Glide 管理，无需手动回收
+    }
+
     private fun fmt(ms: Long): String {
         val total = ms / 1000
         return "%d:%02d".format(total / 60, total % 60)
