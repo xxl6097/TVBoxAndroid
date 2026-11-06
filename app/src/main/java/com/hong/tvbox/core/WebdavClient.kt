@@ -116,12 +116,16 @@ object WebdavClient {
             // 只靠 <collection/> 标签会误判：部分服务端（如极空间）对文件也带这个标签，
             // 结果 mp4 全被当成文件夹、点进去是空目录。
             // 只有整份响应都没有斜杠风格的 href 时，才退回标签判断。
+            // 目录判定顺序（真实服务端各不相同，必须按可靠性从高到低）：
+            // 1) 有非零 getcontentlength → 一定是文件。极空间对所有 href 都加尾斜杠，
+            //    只看斜杠会把 mp4 全判成文件夹，点进去是空目录
+            // 2) href 带尾斜杠 → 目录（RFC 4918 规范）
+            // 3) 兜底才看 resourcetype 的 collection 标签
+            val lenStr = tag(b, "getcontentlength")
+            val len = lenStr.toLongOrNull() ?: -1L
             val isDir = when {
-                // 1) 服务端遵循规范：目录 href 带斜杠，最可靠
+                len > 0 -> false
                 slashStyleHref -> decoded.endsWith("/")
-                // 2) 带 contentlength 的一定是文件（哪怕是 0）
-                b.contains("getcontentlength") -> false
-                // 3) 都没有才看 resourcetype
                 else -> b.contains(":collection") || b.contains("<collection")
             }
 
