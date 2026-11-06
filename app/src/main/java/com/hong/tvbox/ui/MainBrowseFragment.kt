@@ -40,8 +40,9 @@ class MainBrowseFragment : BrowseSupportFragment() {
         historyStore = HistoryStore(requireContext())
 
         title = "鸿蒙影视"
-        headersState = HEADERS_ENABLED
-        isHeadersTransitionOnBackEnabled = true
+        // 我们不用左侧 headers 导航，全部内容都在行里。
+        // 之前设成 HEADERS_ENABLED，首页左边会空出一条白色竖栏，很难看。
+        headersState = HEADERS_HIDDEN
         brandColor = Color.parseColor("#FFFFFF")
         searchAffordanceColor = Color.parseColor("#FFEB3B")
         adapter = rowsAdapter
@@ -237,23 +238,34 @@ class MainBrowseFragment : BrowseSupportFragment() {
         }
     }
 
+    /**
+     * 首启引导。
+     *
+     * 必须用「单个可换行段落」渲染：之前把每句话当成一个 ListRow 项，
+     * 而 ListRow 是横向排布的，结果几段话挤成一行还互相裁切。
+     */
     private fun showConfigGuide() {
-        val adapter = ArrayObjectAdapter(StringPresenter())
-        adapter.add("欢迎使用鸿蒙影视 Android TV 版")
-        adapter.add("")
-        adapter.add("当前未导入配置，请按以下步骤操作：")
-        adapter.add("1. 进入设置页面（上方「功能」行 → 设置）")
-        adapter.add("2. 粘贴订阅链接或 TVBox 配置 JSON")
-        adapter.add("3. 导入后自动加载站源内容")
+        val text = """
+            欢迎使用鸿蒙影视 Android TV 版
+
+            当前还没有导入配置，按下面三步即可开始：
+            1. 上方「功能」行 → 设置
+            2. 粘贴订阅链接，或直接粘贴 TVBox 配置 JSON
+            3. 导入后回到首页，站源内容会自动加载
+
+            也可以点「扫码录入」，用手机在同 Wi-Fi 下扫码填写，免去遥控器输入。
+        """.trimIndent()
+
+        val adapter = ArrayObjectAdapter(GuidePresenter())
+        adapter.add(text)
 
         val header = HeaderItem(0, "使用指南")
         rowsAdapter.add(ListRow(header, adapter))
     }
 
     private fun showNoSitesMessage() {
-        val adapter = ArrayObjectAdapter(StringPresenter())
-        adapter.add("已导入配置，但没有可用的协议型站源")
-        adapter.add("请在设置页面检查站源开关")
+        val adapter = ArrayObjectAdapter(GuidePresenter())
+        adapter.add("已导入配置，但没有可用的协议型站源。\n请到「设置 → 站源管理」检查开关，或重新导入订阅。")
 
         val header = HeaderItem(rowsAdapter.size().toLong(), "提示")
         rowsAdapter.add(ListRow(header, adapter))
@@ -398,4 +410,34 @@ class StringPresenter : Presenter() {
 
 private fun dp(context: android.content.Context, value: Int): Int {
     return (value * context.resources.displayMetrics.density + 0.5f).toInt()
+}
+
+/**
+ * 段落型 Presenter：一块固定宽度、可换行的文本。
+ * 用于首启引导这类多行说明 —— ListRow 是横向排布的，
+ * 把每行文字拆成多个 item 会挤成一排还互相裁切。
+ */
+class GuidePresenter : Presenter() {
+
+    override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
+        val ctx = parent.context
+        val tv = TextView(ctx).apply {
+            textSize = 16f
+            setTextColor(0xFFDDDDDD.toInt())
+            setLineSpacing(dp(ctx, 6).toFloat(), 1f)
+            setPadding(dp(ctx, 16), dp(ctx, 8), dp(ctx, 16), dp(ctx, 8))
+            maxLines = 20
+            layoutParams = ViewGroup.LayoutParams(
+                dp(ctx, 820),
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        return ViewHolder(tv)
+    }
+
+    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any?) {
+        (viewHolder.view as TextView).text = item as? String ?: ""
+    }
+
+    override fun onUnbindViewHolder(viewHolder: ViewHolder) {}
 }

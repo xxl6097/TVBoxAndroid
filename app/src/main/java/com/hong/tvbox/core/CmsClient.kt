@@ -170,11 +170,14 @@ class CmsClient(private val site: Site) {
             if (t.isNotEmpty() && t[0] == '\uFEFF') {
                 t = t.substring(1)
             }
-            
-            val lines = t.split('\n')
-            val keep = lines.filter { !it.trimStart().startsWith("//") }
-            
-            return keep.joinToString("\n").replace(Regex("\"class\"\\s*:"), "\"catList\":")
+
+            // 只去掉 // 注释行。
+            // 注意：不要把 "class" 改名成 "catList" —— 那是 ArkTS 版本的写法
+            // （class 是保留字），Kotlin 这边靠 @SerializedName("class") 直接映射，
+            // 一旦改名反而匹配不上，会导致所有 JSON 站源的分类恒为空。
+            return t.split('\n')
+                .filter { !it.trimStart().startsWith("//") }
+                .joinToString("\n")
         }
         
         private fun parse(txt: String): JResp {
