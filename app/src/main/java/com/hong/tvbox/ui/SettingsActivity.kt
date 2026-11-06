@@ -35,6 +35,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var liveStatus: TextView
     private lateinit var crawlBtn: Button
     private lateinit var crawlSummary: TextView
+
+    private var qrServer: com.hong.tvbox.core.QrServer? = null
+    private var qrDialog: androidx.appcompat.app.AlertDialog? = null
     private lateinit var sitesContainer: LinearLayout
     private lateinit var speedBtn: Button
     private lateinit var enableBestBtn: Button
@@ -97,11 +100,20 @@ class SettingsActivity : AppCompatActivity() {
             maxLines = 3
         }
         subGroup.addView(subscribeInput)
+
+        val subBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
         subscribeBtn = Button(this).apply {
             text = "导入订阅"
             setOnClickListener { importSubscription() }
         }
-        subGroup.addView(subscribeBtn)
+        subBtnRow.addView(subscribeBtn)
+        subBtnRow.addView(Button(this).apply {
+            text = "扫码录入"
+            setOnClickListener { showQrEntry() }
+        })
+        subGroup.addView(subBtnRow)
         subscribeStatus = TextView(this).apply {
             textSize = 14f
             setTextColor(Color.parseColor("#80FFFFFF"))
@@ -244,6 +256,81 @@ class SettingsActivity : AppCompatActivity() {
 
         scroll.addView(root)
         setContentView(scroll)
+    }
+
+    /** 手机扫码录入：起一个局域网小服务 + 显示二维码，离开对话框即停止服务 */
+    private fun showQrEntry() {
+        val server = qrServer ?: com.hong.tvbox.core.QrServer(8788) { form ->
+            runOnUiThread { applyQrForm(form) }
+        }.also { qrServer = it }
+
+        if (!server.start()) {
+            Toast.makeText(this, "端口 8788 被占用，无法启动扫码服务", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val url = server.url()
+        val qr = com.hong.tvbox.core.QrCode.encode(url, 520)
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20), dp(16), dp(20), dp(8))
+        }
+
+        val img = ImageView(this).apply {
+            setImageBitmap(qr)
+            if (qr == null) {
+                setBackgroundColor(Color.WHITE)
+            }
+        }
+        box.addView(img, LinearLayout.LayoutParams(dp(260), dp(260)))
+
+        box.addView(TextView(this).apply {
+            text = url
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(4))
+        })
+
+        box.addView(TextView(this).apply {
+            text = "手机与电视连同一 Wi-Fi，扫码后填写订阅/直播源/配置，提交即生效。\n关闭本窗口后服务立即停止。"
+            textSize = 13f
+            setTextColor(Color.parseColor("#B3FFFFFF"))
+            gravity = Gravity.CENTER
+            setLineSpacing(dp(3).toFloat(), 1f)
+        })
+
+        qrDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("扫码录入")
+            .setView(box)
+            .setPositiveButton("关闭") { _, _ -> }
+            .setOnDismissListener { server.stop() }
+            .show()
+    }
+
+    /** 手机提交的表单：分别落到订阅 / 直播源 / 点播配置 */
+    private fun applyQrForm(form: Map<String, String>) {
+        val subscribe = form["subscribe"].orEmpty()
+        val live = form["live"].orEmpty()
+        val config = form["config"].orEmpty()
+
+        if (subscribe.isNotEmpty()) {
+            subscribeInput.setText(subscribe)
+            importSubscription()
+        }
+        if (live.isNotEmpty()) {
+            liveInput.setText(live)
+            saveLiveSource()
+        }
+        if (config.isNotEmpty()) {
+            configInput.setText(config)
+            importConfig()
+        }
+        if (subscribe.isEmpty() && live.isEmpty() && config.isEmpty()) {
+            Toast.makeText(this, "手机端没有填写内容", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** 手动跑一轮定时抓取（首页每 6 小时也会自动跑） */
@@ -611,6 +698,13 @@ class SettingsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)
             ).also { it.marginStart = dp(18) }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        qrDialog?.dismiss()
+        qrServer?.stop()
+        qrServer = null
     }
 
     private fun dp(value: Int): Int {

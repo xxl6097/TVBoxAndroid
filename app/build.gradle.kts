@@ -69,6 +69,9 @@ dependencies {
     implementation("com.github.bumptech.glide:glide:4.16.0")
     annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
 
+    // 二维码（扫码录入订阅，电视上免手输）
+    implementation("com.google.zxing:core:3.5.3")
+
     // Lifecycle scope for Fragment/Activity
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 }
