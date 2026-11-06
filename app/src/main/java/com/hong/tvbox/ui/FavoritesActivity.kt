@@ -109,7 +109,7 @@ class FavoritesActivity : AppCompatActivity() {
         }
         statusView.text = "共 ${list.size} 部"
 
-        list.forEach { fav ->
+        list.forEachIndexed { pos, fav ->
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(4), dp(4), dp(4), dp(4))
@@ -156,7 +156,7 @@ class FavoritesActivity : AppCompatActivity() {
             }
             card.addView(name)
 
-            val spec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f)
+            val spec = GridLayout.spec(pos % 6, 1, 1f)
             card.layoutParams = GridLayout.LayoutParams(spec, spec).also {
                 it.width = 0
                 it.height = ViewGroup.LayoutParams.WRAP_CONTENT

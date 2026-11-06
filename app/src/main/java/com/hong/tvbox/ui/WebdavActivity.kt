@@ -261,9 +261,10 @@ class WebdavActivity : AppCompatActivity() {
                             if (images.isNotEmpty()) " · ${images.size} 张图作封面" else ""
                 }
 
+                var pos = 0
                 dirs.forEach { e ->
                     gridContainer.addView(
-                        card(src, path, e, folderCover) {
+                        card(src, path, e, folderCover, pos++) {
                             paths.addLast(path)
                             browse(join(path, e.name))
                         }
@@ -274,7 +275,7 @@ class WebdavActivity : AppCompatActivity() {
                     val cover = covers[e.name.substringBeforeLast('.')]
                         ?: if (videos.size == 1) folderCover else null
                     gridContainer.addView(
-                        card(src, path, e, cover) { play(src, path, e) }
+                        card(src, path, e, cover, pos++) { play(src, path, e) }
                     )
                 }
             } catch (e: Exception) {
@@ -292,6 +293,7 @@ class WebdavActivity : AppCompatActivity() {
         dirPath: String,
         e: WebdavEntry,
         coverName: String?,
+        pos: Int,
         onClick: () -> Unit
     ): View {
         val card = LinearLayout(this).apply {
@@ -358,7 +360,7 @@ class WebdavActivity : AppCompatActivity() {
             })
         }
 
-        val spec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f)
+        val spec = GridLayout.spec(pos % 4, 1, 1f)
         card.layoutParams = GridLayout.LayoutParams(spec, spec).also {
             it.width = 0
             it.height = ViewGroup.LayoutParams.WRAP_CONTENT

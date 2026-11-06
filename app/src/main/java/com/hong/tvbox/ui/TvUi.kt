@@ -40,7 +40,8 @@ fun View.onTvFocus(
     scale: Float = 1.06f
 ) {
     isFocusable = true
-    isFocusableInTouchMode = true
+    // 不要设 isFocusableInTouchMode：触摸模式下第一次点击只会把焦点移过去而不触发点击，
+    // 手机上表现为"要点两下"。TV 走非触摸模式，方向键聚焦不受影响。
 
     val d = resources.displayMetrics.density
 

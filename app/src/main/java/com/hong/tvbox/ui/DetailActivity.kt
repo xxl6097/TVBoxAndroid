@@ -420,7 +420,7 @@ class DetailActivity : AppCompatActivity() {
         // 倒序时按真实下标倒着渲染，点击仍用真实下标，保证续播/历史记录不错位
         val order = if (epDesc) eps.indices.reversed().toList() else eps.indices.toList()
 
-        order.forEach { i ->
+        order.forEachIndexed { pos, i ->
             val ep = eps[i]
             val isSeen = i == seenEpisodeIndex
             val btn = TextView(this).apply {
@@ -431,7 +431,8 @@ class DetailActivity : AppCompatActivity() {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
 
-                val spec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f)
+                // 显式指定列号：只写 UNDEFINED 时，剧集数少于列数会被平均拉伸成整行
+                val spec = GridLayout.spec(pos % 8, 1, 1f)
                 layoutParams = GridLayout.LayoutParams(spec, spec).also {
                     it.width = 0
                     it.height = dp(46)

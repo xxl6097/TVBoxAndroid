@@ -305,13 +305,13 @@ class LiveActivity : AppCompatActivity() {
         }
         statusView.text = "共 ${channels.size} 台" + if (dead.isEmpty()) "" else "，已标记 ${dead.size} 台失效"
 
-        channels.forEach { ch ->
-            gridLayout.addView(channelCard(ch))
+        channels.forEachIndexed { pos, ch ->
+            gridLayout.addView(channelCard(ch, pos))
         }
         scroll.scrollTo(0, 0)
     }
 
-    private fun channelCard(ch: Channel): View {
+    private fun channelCard(ch: Channel, pos: Int): View {
         val isDead = dead.contains(ch.name)
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -342,7 +342,7 @@ class LiveActivity : AppCompatActivity() {
             card.addView(sub)
         }
 
-        val spec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f)
+        val spec = GridLayout.spec(pos % 5, 1, 1f)
         card.layoutParams = GridLayout.LayoutParams(spec, spec).also {
             it.width = 0
             it.height = ViewGroup.LayoutParams.WRAP_CONTENT
