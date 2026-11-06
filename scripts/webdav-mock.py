@@ -21,7 +21,27 @@ PORT = 18081
 BASE = f"http://127.0.0.1:{PORT}"
 ROOT = "/dav"
 AUTH = "Basic " + base64.b64encode(b"test:test").decode()
-VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "test.mp4")
+HERE = os.path.dirname(os.path.abspath(__file__))
+VIDEO = os.path.join(HERE, "test.mp4")
+
+
+def ensure_video():
+    """没有测试视频就用 ffmpeg 现造一个 8 秒彩条，免得手动准备素材。"""
+    if os.path.exists(VIDEO):
+        return True
+    try:
+        import subprocess
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25",
+            "-f", "lavfi", "-i", "sine=frequency=440", "-t", "8",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+            "-movflags", "+faststart", VIDEO,
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"[webdav] 已生成测试视频 {VIDEO}", flush=True)
+        return True
+    except Exception as e:
+        print(f"[webdav] 生成测试视频失败：{e}", flush=True)
+        return False
 
 # 目录结构：/dav → 电影/ + 剧集/
 TREE = {
@@ -114,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(png_bytes(), "image/png")
 
         if path.lower().endswith(".mp4"):
-            if not os.path.exists(VIDEO):
+            if not ensure_video():
                 return self._send(b"no video", "text/plain", 404)
             with open(VIDEO, "rb") as f:
                 data = f.read()
@@ -146,5 +166,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    ensure_video()
     print(f"webdav mock on {BASE}/dav  (Basic test:test)", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
