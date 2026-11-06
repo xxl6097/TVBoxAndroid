@@ -89,6 +89,12 @@ object WebdavClient {
 
         val blocks = Regex("<[a-zA-Z0-9]*:?response[\\s>][\\s\\S]*?</[a-zA-Z0-9]*:?response>")
             .findAll(xml)
+            .toList()
+
+        // 这份响应是否遵循「目录 href 带斜杠」的规范：遵循则用它判断目录，最可靠
+        val slashStyleHref = blocks.any { m ->
+            tag(m.value, "href").endsWith("/")
+        }
 
         blocks.forEach { m ->
             val b = m.value
@@ -106,7 +112,19 @@ object WebdavClient {
             val normalized = decoded.trimEnd('/')
             if (normalized == current || normalized.isEmpty()) return@forEach
 
-            val isDir = b.contains(":collection") || b.contains("<collection")
+            // 目录判定优先看 href 是否以 "/" 结尾（RFC 4918 要求 collection 的 href 带斜杠）。
+            // 只靠 <collection/> 标签会误判：部分服务端（如极空间）对文件也带这个标签，
+            // 结果 mp4 全被当成文件夹、点进去是空目录。
+            // 只有整份响应都没有斜杠风格的 href 时，才退回标签判断。
+            val isDir = when {
+                // 1) 服务端遵循规范：目录 href 带斜杠，最可靠
+                slashStyleHref -> decoded.endsWith("/")
+                // 2) 带 contentlength 的一定是文件（哪怕是 0）
+                b.contains("getcontentlength") -> false
+                // 3) 都没有才看 resourcetype
+                else -> b.contains(":collection") || b.contains("<collection")
+            }
+
             val name = decoded.trimEnd('/').substringAfterLast('/')
             if (name.isEmpty()) return@forEach
 
