@@ -20,6 +20,7 @@ class ConfigStore(context: Context) {
         private const val KEY_ENABLED_CUSTOM = "enabled_custom"
         private const val KEY_SUBSCRIBE_URL = "subscribe_url"
         private const val KEY_LIVE_SOURCE_URL = "live_source_url"
+        private const val KEY_SUB_LIVES = "sub_lives"
         private const val KEY_LAST_UPDATE = "last_update"
     }
     
@@ -148,6 +149,29 @@ class ConfigStore(context: Context) {
      */
     fun getLiveSourceUrl(): String? {
         return prefs.getString(KEY_LIVE_SOURCE_URL, null)
+    }
+
+    /**
+     * 订阅下发的直播源列表（多个候选，设置页/直播页可切换）。
+     * 存的是 [{name,url}] 的 JSON。
+     */
+    fun getSubLives(): List<LiveSource> {
+        val json = prefs.getString(KEY_SUB_LIVES, null) ?: return emptyList()
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<LiveSource>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveSubLives(list: List<LiveSource>) {
+        prefs.edit().putString(KEY_SUB_LIVES, gson.toJson(list)).apply()
+    }
+
+    /** 订阅里带的直播源名（设置页展示用） */
+    fun getSubLiveName(url: String): String {
+        return getSubLives().firstOrNull { it.url == url }?.name ?: ""
     }
     
     /**

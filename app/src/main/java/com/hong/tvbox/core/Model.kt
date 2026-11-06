@@ -78,6 +78,38 @@ data class Episode(
     var url: String = ""
 )
 
+// ============ 直播 ============
+
+/**
+ * 一个直播频道。
+ * urls 是同名同组的多条线路（CCTV1 常有三四条地址），播挂了要能换线。
+ */
+data class Channel(
+    var name: String = "",
+    var url: String = "",
+    var logo: String = "",
+    var group: String = "",
+    var urls: MutableList<String> = mutableListOf()
+)
+
+data class ChannelGroup(
+    var name: String = "",
+    var channels: MutableList<Channel> = mutableListOf()
+)
+
+/**
+ * 直播目录节点。
+ *
+ * 直播源本身只有一层分组，几百个台平铺很难找；这里按源里写的
+ * 「地方台/北京」这类层级拆成树。每个节点既可有直属频道，也可有子节点。
+ */
+data class LiveDir(
+    var name: String = "",
+    var count: Int = 0,
+    var children: MutableList<LiveDir> = mutableListOf(),
+    var channels: MutableList<Channel> = mutableListOf()
+)
+
 data class Line(
     var name: String = "",
     var direct: Boolean = false,    // 是否可直连播放

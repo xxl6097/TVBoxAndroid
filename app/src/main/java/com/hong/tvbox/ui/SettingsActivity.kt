@@ -31,6 +31,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var configInput: EditText
     private lateinit var configBtn: Button
     private lateinit var configStatus: TextView
+    private lateinit var liveInput: EditText
+    private lateinit var liveStatus: TextView
     private lateinit var sitesContainer: LinearLayout
     private lateinit var speedBtn: Button
     private lateinit var enableBestBtn: Button
@@ -143,6 +145,42 @@ class SettingsActivity : AppCompatActivity() {
         cfgGroup.addView(configStatus)
         root.addView(cfgGroup)
 
+        // ===== 直播源 =====
+        root.addView(sectionTitle("直播源（m3u / txt）"))
+
+        val liveGroup = cardGroup()
+        liveInput = EditText(this).apply {
+            hint = "粘贴直播源地址，如 https://.../iptv.m3u"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#80FFFFFF"))
+            setBackgroundColor(Color.TRANSPARENT)
+            maxLines = 3
+            setText(configStore.getLiveSourceUrl() ?: "")
+        }
+        liveGroup.addView(liveInput)
+
+        val liveBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        liveBtnRow.addView(Button(this).apply {
+            text = "保存并启用"
+            setOnClickListener { saveLiveSource() }
+        })
+        liveBtnRow.addView(Button(this).apply {
+            text = "从订阅恢复"
+            setOnClickListener { applyLivesFromSubscription() }
+        })
+        liveGroup.addView(liveBtnRow)
+
+        liveStatus = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.parseColor("#80FFFFFF"))
+            setPadding(0, dp(8), 0, 0)
+        }
+        liveGroup.addView(liveStatus)
+        root.addView(liveGroup)
+
         // ===== 站源管理 =====
         root.addView(sectionTitle("站源管理"))
 
@@ -214,6 +252,7 @@ class SettingsActivity : AppCompatActivity() {
                 // 换了配置，旧站源 key 已经不适用，开关重置为「全部启用」
                 configStore.resetEnabledSites()
                 CmsClient.clearCache()
+                absorbLives()
 
                 subscribeStatus.text = "导入成功：$siteCount 个站源"
                 Toast.makeText(this@SettingsActivity, "订阅导入成功，共 $siteCount 个站源", Toast.LENGTH_SHORT).show()
@@ -226,6 +265,66 @@ class SettingsActivity : AppCompatActivity() {
                 subscribeBtn.isEnabled = true
             }
         }
+    }
+
+    /**
+     * 把配置/订阅里的 lives 收进本地，并自动选中第一个。
+     * 订阅 = 一份 JSON 同时带点播站源与直播源，填一个链接两样都更新。
+     */
+    private fun absorbLives() {
+        val lives = configStore.getConfig()?.lives ?: return
+        val valid = lives.filter {
+            it.url.startsWith("http://") || it.url.startsWith("https://")
+        }
+        if (valid.isEmpty()) return
+
+        configStore.saveSubLives(valid)
+
+        val cur = configStore.getLiveSourceUrl()
+        if (cur.isNullOrEmpty() || valid.none { it.url == cur }) {
+            configStore.saveLiveSourceUrl(valid.first().url)
+        }
+        if (this::liveInput.isInitialized) {
+            liveInput.setText(configStore.getLiveSourceUrl() ?: "")
+        }
+        if (this::liveStatus.isInitialized) {
+            liveStatus.visibility = View.VISIBLE
+            liveStatus.text = "已收录 ${valid.size} 个直播源：${valid.joinToString("、") { it.name }}"
+        }
+    }
+
+    private fun saveLiveSource() {
+        val url = liveInput.text.toString().trim()
+        if (url.isEmpty()) {
+            Toast.makeText(this, "请输入直播源地址", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            Toast.makeText(this, "直播源必须是 http/https 地址", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        configStore.saveLiveSourceUrl(url)
+        liveStatus.visibility = View.VISIBLE
+        liveStatus.text = "已启用：$url"
+        Toast.makeText(this, "直播源已保存", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun applyLivesFromSubscription() {
+        val lives = configStore.getSubLives()
+        if (lives.isEmpty()) {
+            liveStatus.visibility = View.VISIBLE
+            liveStatus.text = "订阅里没有直播源（导入带 lives 的订阅后会自动收录）"
+            return
+        }
+
+        val cur = configStore.getLiveSourceUrl()
+        if (cur.isNullOrEmpty() || lives.none { it.url == cur }) {
+            configStore.saveLiveSourceUrl(lives.first().url)
+        }
+        liveInput.setText(configStore.getLiveSourceUrl() ?: "")
+        liveStatus.visibility = View.VISIBLE
+        liveStatus.text = "共 ${lives.size} 个候选：${lives.joinToString("、") { it.name }}"
     }
 
     private fun importConfig() {
@@ -250,6 +349,7 @@ class SettingsActivity : AppCompatActivity() {
                 val siteCount = configStore.loadConfig(text)
                 configStore.resetEnabledSites()
                 CmsClient.clearCache()
+                absorbLives()
 
                 configStatus.text = "导入成功：$siteCount 个站源"
                 Toast.makeText(this@SettingsActivity, "配置导入成功，共 $siteCount 个站源", Toast.LENGTH_SHORT).show()

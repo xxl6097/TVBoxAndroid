@@ -53,6 +53,8 @@ class PlayerActivity : AppCompatActivity() {
     private var resolvedHeaders: Map<String, String> = emptyMap()
     /** 续播目标位置（毫秒），0 表示从头播 */
     private var pendingSeek: Long = 0L
+    /** 直播模式：不记观看历史，上/下一集改叫上/下一线路 */
+    private var isLiveMode = false
 
     // UI 控件
     private lateinit var loadingView: View
@@ -92,6 +94,7 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_EP_URLS = "ep_urls"
         const val EXTRA_EP_NAMES = "ep_names"
         const val EXTRA_START_POS = "start_pos"
+        const val EXTRA_IS_LIVE = "is_live"
 
         fun start(
             context: Context,
@@ -103,7 +106,8 @@ class PlayerActivity : AppCompatActivity() {
             episodeIndex: Int,
             isDirect: Boolean,
             siteApi: String,
-            startPosition: Long = 0L
+            startPosition: Long = 0L,
+            isLive: Boolean = false
         ) {
             val intent = Intent(context, PlayerActivity::class.java).apply {
                 putExtra(EXTRA_VOD_ID, vodId)
@@ -116,6 +120,7 @@ class PlayerActivity : AppCompatActivity() {
                 putExtra(EXTRA_EP_URLS, allEpisodes.map { it.url }.toTypedArray())
                 putExtra(EXTRA_EP_NAMES, allEpisodes.map { it.name }.toTypedArray())
                 putExtra(EXTRA_START_POS, startPosition)
+                putExtra(EXTRA_IS_LIVE, isLive)
             }
             context.startActivity(intent)
         }
@@ -139,6 +144,7 @@ class PlayerActivity : AppCompatActivity() {
         isDirectLine = intent.getBooleanExtra(EXTRA_IS_DIRECT, false)
         siteApi = intent.getStringExtra(EXTRA_SITE_API) ?: ""
         pendingSeek = intent.getLongExtra(EXTRA_START_POS, 0L)
+        isLiveMode = intent.getBooleanExtra(EXTRA_IS_LIVE, false)
 
         val epUrls = intent.getStringArrayExtra(EXTRA_EP_URLS) ?: arrayOf()
         val epNames = intent.getStringArrayExtra(EXTRA_EP_NAMES) ?: arrayOf()
@@ -286,7 +292,7 @@ class PlayerActivity : AppCompatActivity() {
             setPadding(0, dp(8), 0, 0)
         }
         osdPrevBtn = Button(this).apply {
-            text = "上一集"
+            text = if (isLiveMode) "上一线路" else "上一集"
             setOnClickListener { switchEpisode(-1) }
         }
         controlRow.addView(osdPrevBtn)
@@ -301,7 +307,7 @@ class PlayerActivity : AppCompatActivity() {
         controlRow.addView(osdButton("10s »") { seekBy(10_000L) })
 
         osdNextBtn = Button(this).apply {
-            text = "下一集"
+            text = if (isLiveMode) "下一线路" else "下一集"
             setOnClickListener { switchEpisode(1) }
         }
         controlRow.addView(osdNextBtn)
@@ -551,7 +557,9 @@ class PlayerActivity : AppCompatActivity() {
                             isBuffering = false
                             loadingView.visibility = View.GONE
                             // 续播定位：优先用调用方传入的位置，其次读本地历史
+                            // 直播没有“看到哪”的概念，跳过
                             val target = when {
+                                isLiveMode -> 0L
                                 pendingSeek > 0 -> pendingSeek
                                 else -> {
                                     val history = historyStore.get(vodId, siteKey)
@@ -671,6 +679,8 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun savePosition() {
+        // 直播不写观看历史：否则「继续观看」会被一堆频道占满
+        if (isLiveMode) return
         player?.let { p ->
             if (isPrepared && p.currentPosition > 0) {
                 historyStore.addOrUpdate(History(

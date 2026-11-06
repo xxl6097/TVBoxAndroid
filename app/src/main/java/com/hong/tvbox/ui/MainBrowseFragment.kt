@@ -91,6 +91,7 @@ class MainBrowseFragment : BrowseSupportFragment() {
     private fun addFunctionRow() {
         val funcs = listOf(
             FuncItem("点播", "vod"),
+            FuncItem("直播", "live"),
             FuncItem("搜索", "search"),
             FuncItem("收藏", "favorites"),
             FuncItem("历史", "history"),
@@ -181,6 +182,7 @@ class MainBrowseFragment : BrowseSupportFragment() {
                     val ctx = requireContext()
                     when (item.action) {
                         "vod" -> VodBrowseActivity.start(ctx)
+                        "live" -> LiveActivity.start(ctx)
                         "search" -> startActivity(Intent(ctx, SearchActivity::class.java))
                         "favorites" -> FavoritesActivity.start(ctx)
                         "history" -> HistoryActivity.start(ctx)
