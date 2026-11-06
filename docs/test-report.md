@@ -137,17 +137,25 @@ adb reverse tcp:18080 tcp:18080
 **现象**：`/电影` 目录下 4 个 `.mp4` 全部显示成文件夹图标，统计为「4 个文件夹 · 0 个视频」，
 点进去是空目录，根本无法播放。
 
-**根因**：极空间的 PROPFIND 响应不规范 ——
-1. 对所有 href 都加尾斜杠（文件也加），所以「按斜杠判断目录」失效；
-2. 对文件也返回 `<D:collection/>` 标签，所以「按 resourcetype 判断」同样失效。
+**根因**（已抓到真实 PROPFIND 响应确认，样本见 `propfind_last.xml`）：
+
+极空间对**目录和文件一视同仁**：
+1. 都返回 `<D:resourcetype><D:collection/></D:resourcetype>` → collection 判据失效；
+2. 都不返回 `getcontentlength` → 长度判据失效；
+3. 文件 href 也带尾斜杠 → 斜杠判据失效。
+
+三条常规判据全部失效，只剩文件名扩展名可用。
 
 **修复**：把目录判定改成三级优先级（`WebdavClient.parse`）：
 
 | 顺序 | 判据 | 说明 |
 |---|---|---|
 | 1 | `getcontentlength > 0` | 有长度的必然是文件，最可靠 |
-| 2 | href 以 `/` 结尾 | RFC 4918 规范实现 |
-| 3 | `resourcetype` 含 collection | 老实现兜底 |
+| 2 | 文件名是媒体扩展名（mp4/mkv/jpg…） | 极空间只能靠这条 |
+| 3 | href 以 `/` 结尾 | RFC 4918 规范实现 |
+| 4 | `resourcetype` 含 collection | 老实现兜底 |
+
+副作用：若真有名字叫 `xxx.mp4` 的**目录**会被误判为文件（极罕见，可接受）。
 
 ## 防回归
 
@@ -158,4 +166,18 @@ adb reverse tcp:18080 tcp:18080
 ## 状态
 
 - 构建 + 单元测试：CI 通过
-- 真实环境复查：**待补**（改完后模拟器再次掉线，`adb devices` 仍为 offline）
+- 真实环境复查：**待补**（改完后模拟器反复掉线，最后 5555 端口拒绝连接，需重启模拟器）
+
+### 自测步骤（30 秒）
+
+1. 打开应用 → 网盘 → 点 TestNAS → 「电影」
+2. 状态行应显示 **「0 个文件夹 · 4 个视频」**，卡片是 🎬 图标
+3. 点任一影片应直接开始播放
+4. 播放 10 秒左右返回 → 网盘首页顶部出现「最近观看」，显示「看到 0:10 / 总长」
+5. 点该卡片应从 0:10 继续；首页「继续观看」里也有这条
+
+### 排障开关
+
+`WebdavClient.list` 会把最近一次 PROPFIND 响应写到
+`/sdcard/Android/data/com.hong.tvbox/files/propfind_last.xml`，
+换其它 NAS（群晖/AList）遇到目录判定异常时，`adb pull` 出来看字段即可。
