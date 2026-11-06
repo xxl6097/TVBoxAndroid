@@ -1,6 +1,7 @@
 package com.hong.tvbox.ui
 
 import android.graphics.Color
+import android.view.MotionEvent
 import android.view.View
 
 /**
@@ -52,10 +53,15 @@ fun View.onTvFocus(
         }
     }
 
-    // 部分盒子把遥控器当鼠标设备上报 hover，一并接住
-    setOnHoverListener { v, hovering ->
-        if (v.hasFocus()) return@setOnHoverListener false
-        v.setBackgroundColor(if (hovering) focusColor else normalColor)
+    // 部分盒子把遥控器当鼠标设备上报 hover（MotionEvent），一并接住。
+    // 注意 setOnHoverListener 的回调签名是 (View, MotionEvent) -> Boolean，不是布尔入参。
+    setOnHoverListener { v, event ->
+        if (!v.hasFocus()) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_HOVER_ENTER -> v.setBackgroundColor(focusColor)
+                MotionEvent.ACTION_HOVER_EXIT -> v.setBackgroundColor(normalColor)
+            }
+        }
         false
     }
 }
