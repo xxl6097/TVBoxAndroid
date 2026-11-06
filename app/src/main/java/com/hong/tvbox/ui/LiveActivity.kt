@@ -342,9 +342,11 @@ class LiveActivity : AppCompatActivity() {
             card.addView(sub)
         }
 
-        val spec = GridLayout.spec(pos % 5, 1, 1f)
-        card.layoutParams = GridLayout.LayoutParams(spec, spec).also {
-            it.width = 0
+        val cellW = (resources.displayMetrics.widthPixels - dp(240) - dp(60)) / 5
+        val rowSpec = GridLayout.spec(pos / 5, 1)
+        val colSpec = GridLayout.spec(pos % 5, 1)
+        card.layoutParams = GridLayout.LayoutParams(rowSpec, colSpec).also {
+            it.width = cellW - dp(8)
             it.height = ViewGroup.LayoutParams.WRAP_CONTENT
             it.setMargins(dp(4), dp(4), dp(4), dp(4))
         }

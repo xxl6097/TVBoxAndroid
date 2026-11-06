@@ -413,6 +413,7 @@ class VodBrowseActivity : AppCompatActivity() {
         gridLayout.removeAllViews()
         gridLayout.columnCount = 6
 
+        val cellW = (resources.displayMetrics.widthPixels - dp(48)) / 6
         items.forEachIndexed { pos, vod ->
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -451,9 +452,10 @@ class VodBrowseActivity : AppCompatActivity() {
                 card.addView(remark)
             }
 
-            val spec = GridLayout.spec(pos % 6, 1, 1f)
-            card.layoutParams = GridLayout.LayoutParams(spec, spec).also {
-                it.width = 0
+            val rowSpec = GridLayout.spec(pos / 6, 1)
+            val colSpec = GridLayout.spec(pos % 6, 1)
+            card.layoutParams = GridLayout.LayoutParams(rowSpec, colSpec).also {
+                it.width = cellW - dp(8)
                 it.height = ViewGroup.LayoutParams.WRAP_CONTENT
                 it.setMargins(dp(4), dp(4), dp(4), dp(8))
             }

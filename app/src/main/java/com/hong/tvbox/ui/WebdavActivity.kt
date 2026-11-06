@@ -360,9 +360,11 @@ class WebdavActivity : AppCompatActivity() {
             })
         }
 
-        val spec = GridLayout.spec(pos % 4, 1, 1f)
-        card.layoutParams = GridLayout.LayoutParams(spec, spec).also {
-            it.width = 0
+        val cellW = (resources.displayMetrics.widthPixels - dp(48)) / 4
+        val rowSpec = GridLayout.spec(pos / 4, 1)
+        val colSpec = GridLayout.spec(pos % 4, 1)
+        card.layoutParams = GridLayout.LayoutParams(rowSpec, colSpec).also {
+            it.width = cellW - dp(12)
             it.height = ViewGroup.LayoutParams.WRAP_CONTENT
             it.setMargins(dp(6), dp(6), dp(6), dp(8))
         }

@@ -415,6 +415,8 @@ class DetailActivity : AppCompatActivity() {
 
         val eps = lines[currentLineIndex].eps
         episodesGrid.columnCount = 8
+        // 固定列宽 = (屏宽 - 左右内边距) / 列数；GridLayout 的 weight 是按行分配，靠它得不到 1/8
+        val cellW = (resources.displayMetrics.widthPixels - dp(48)) / 8
         episodesGrid.visibility = View.VISIBLE
 
         // 倒序时按真实下标倒着渲染，点击仍用真实下标，保证续播/历史记录不错位
@@ -431,10 +433,11 @@ class DetailActivity : AppCompatActivity() {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
 
-                // 显式指定列号：只写 UNDEFINED 时，剧集数少于列数会被平均拉伸成整行
-                val spec = GridLayout.spec(pos % 8, 1, 1f)
-                layoutParams = GridLayout.LayoutParams(spec, spec).also {
-                    it.width = 0
+                // 显式列号 + 固定宽度：只写 UNDEFINED/weight 时，剧集数少于列数会被拉伸满整行
+                val rowSpec = GridLayout.spec(pos / 8, 1)
+                val colSpec = GridLayout.spec(pos % 8, 1)
+                layoutParams = GridLayout.LayoutParams(rowSpec, colSpec).also {
+                    it.width = cellW - dp(10)
                     it.height = dp(46)
                     it.setMargins(dp(5), dp(5), dp(5), dp(5))
                 }
