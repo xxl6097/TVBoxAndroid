@@ -35,3 +35,5 @@ build/
 *.apk
 
 dist/
+*.jks
+*.keystore

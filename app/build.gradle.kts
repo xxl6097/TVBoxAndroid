@@ -16,13 +16,46 @@ android {
         versionName = "1.0.0"
     }
 
+    /**
+     * Release 签名。
+     *
+     * 密钥不进仓库：从环境变量或 local.properties 读，读不到就不配置签名
+     * （此时 assembleRelease 只出未签名包，CI 的 debug 构建完全不受影响）。
+     * 生成密钥：scripts/gen-keystore.sh
+     */
+    val ksPath = (project.findProperty("KEYSTORE_PATH") as String?)
+        ?: System.getenv("KEYSTORE_PATH")
+    val ksPass = (project.findProperty("KEYSTORE_PASSWORD") as String?)
+        ?: System.getenv("KEYSTORE_PASSWORD")
+    val ksAlias = (project.findProperty("KEY_ALIAS") as String?)
+        ?: System.getenv("KEY_ALIAS")
+    val ksKeyPass = (project.findProperty("KEY_PASSWORD") as String?)
+        ?: System.getenv("KEY_PASSWORD")
+
+    signingConfigs {
+        if (ksPath != null && File(ksPath).exists() && ksPass != null && ksAlias != null) {
+            create("release") {
+                storeFile = File(ksPath)
+                storePassword = ksPass
+                keyAlias = ksAlias
+                keyPassword = ksKeyPass ?: ksPass
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 有签名配置就签，没有就保持未签名（不阻断构建）
+            signingConfig = signingConfigs.findByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        debug {
+            isMinifyEnabled = false
         }
     }
 
