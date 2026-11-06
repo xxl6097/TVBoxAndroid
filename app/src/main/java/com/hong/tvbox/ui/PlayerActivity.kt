@@ -600,7 +600,11 @@ class PlayerActivity : AppCompatActivity() {
         osdView.visibility = View.GONE
 
         val episode = allEpisodes.getOrNull(currentEpisodeIndex) ?: return
-        osdTitle.text = "$vodName ${episode.name}"
+        osdTitle.text = if (vodName == episode.name || episode.name.isEmpty()) {
+            vodName
+        } else {
+            "$vodName ${episode.name}"
+        }
 
         lifecycleScope.launch {
             try {

@@ -13,11 +13,13 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.hong.tvbox.core.History
 import com.hong.tvbox.core.Episode
 import com.hong.tvbox.core.WebdavClient
 import com.hong.tvbox.core.WebdavEntry
 import com.hong.tvbox.core.WebdavSource
 import com.hong.tvbox.data.ConfigStore
+import com.hong.tvbox.data.HistoryStore
 import kotlinx.coroutines.launch
 
 /**
@@ -29,6 +31,7 @@ import kotlinx.coroutines.launch
 class WebdavActivity : AppCompatActivity() {
 
     private lateinit var configStore: ConfigStore
+    private lateinit var historyStore: HistoryStore
 
     private lateinit var titleView: TextView
     private lateinit var pathView: TextView
@@ -49,8 +52,15 @@ class WebdavActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         configStore = ConfigStore(this)
+        historyStore = HistoryStore(this)
         buildUI()
-        renderSources()
+        // 渲染交给 onResume，避免进页面时重复构建两次
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 看完片返回时刷新「最近观看」里的进度
+        if (this::historyStore.isInitialized && source == null) renderSources()
     }
 
     private fun buildUI() {
@@ -165,6 +175,9 @@ class WebdavActivity : AppCompatActivity() {
         pathView.text = ""
         statusView.text = ""
 
+        // 先放「最近观看」：从网盘看过的片子能一键接着看
+        addRecentRow()
+
         val sources = configStore.getWebdavSources()
         if (sources.isEmpty()) {
             statusView.text = "还没有网盘源。点「添加源」填 WebDAV 地址（极空间默认端口 5005）。"
@@ -225,6 +238,106 @@ class WebdavActivity : AppCompatActivity() {
             setOnClickListener { onClick() }
             onTvFocus(scale = 1f)
         }
+    }
+
+    // ============ 最近观看 ============
+
+    /** 只取网盘产生的历史（siteKey 以 webdav: 开头） */
+    private fun addRecentRow() {
+        val recent = historyStore.getAll().filter { it.siteKey.startsWith("webdav:") }
+        if (recent.isEmpty()) return
+
+        listContainer.addView(TextView(this).apply {
+            text = "最近观看"
+            textSize = 15f
+            setTextColor(TvUi.SUB)
+            setPadding(dp(2), 0, 0, dp(10))
+        })
+
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        recent.take(10).forEach { row.addView(recentCard(it)) }
+
+        listContainer.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+            addView(row)
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.bottomMargin = dp(18) })
+    }
+
+    private fun recentCard(h: History): View {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+        }
+
+        val cover = FrameLayout(this)
+        val img = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(Color.parseColor("#2A272E"))
+        }
+        cover.addView(img, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(112)
+        ))
+
+        // 网盘文件没有海报，放个影片角标，比空灰块好看
+        cover.addView(TextView(this).apply {
+            text = "🎬"
+            textSize = 28f
+            gravity = Gravity.CENTER
+        }, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(112)
+        ))
+
+        if (h.vodPic.isNotEmpty()) {
+            com.bumptech.glide.Glide.with(this).load(h.vodPic).centerCrop().into(img)
+        }
+
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 1000
+            progress = if (h.duration > 0) {
+                ((h.position * 1000) / h.duration).toInt().coerceIn(0, 1000)
+            } else 0
+            visibility = if (h.duration > 0 && h.position > 0) View.VISIBLE else View.GONE
+        }
+        cover.addView(bar, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(4), Gravity.BOTTOM
+        ))
+        card.addView(cover, LinearLayout.LayoutParams(dp(196), dp(112)))
+
+        card.addView(TextView(this).apply {
+            text = h.vodName
+            textSize = 13f
+            setTextColor(TvUi.TEXT)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.MIDDLE
+            maxWidth = dp(196)
+            setPadding(0, dp(6), 0, 0)
+        })
+
+        card.addView(TextView(this).apply {
+            text = if (h.duration > 0) "看到 ${fmt(h.position)} / ${fmt(h.duration)}" else "未开始"
+            textSize = 11f
+            setTextColor(TvUi.DIM)
+        })
+
+        card.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.marginEnd = dp(10) }
+
+        card.setOnClickListener {
+            PlaybackResumer.resume(lifecycleScope, this, configStore, h) { msg ->
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            }
+        }
+        card.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1.04f)
+        return card
+    }
+
+    private fun fmt(ms: Long): String {
+        val total = ms / 1000
+        return "%d:%02d".format(total / 60, total % 60)
     }
 
     // ============ 浏览 ============
@@ -419,17 +532,19 @@ class WebdavActivity : AppCompatActivity() {
 
     private fun play(src: WebdavSource, dir: String, e: WebdavEntry) {
         val url = WebdavClient.urlFor(src, join(dir, e.name))
+
         PlayerActivity.start(
             context = this,
-            vodId = "wd_$url",
-            siteKey = "webdav",
+            // 用绝对地址当唯一键：续播时不必再回网盘找文件
+            vodId = url,
+            // 带上源 id，续播时据此取账号密码拼 Authorization
+            siteKey = "webdav:${src.id}",
             vodName = e.name,
             lineName = "网盘",
             allEpisodes = listOf(Episode(name = e.name, url = url)),
             episodeIndex = 0,
             isDirect = true,
             siteApi = "",
-            skipHistory = true,   // 不写观看历史
             authHeader = WebdavClient.authHeader(src).orEmpty()
         )
     }

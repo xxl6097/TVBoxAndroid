@@ -2,7 +2,9 @@ package com.hong.tvbox.ui
 
 import android.content.Context
 import com.hong.tvbox.core.CmsClient
+import com.hong.tvbox.core.Episode
 import com.hong.tvbox.core.History
+import com.hong.tvbox.core.WebdavClient
 import com.hong.tvbox.data.ConfigStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -23,6 +25,37 @@ object PlaybackResumer {
         h: History,
         onError: (String) -> Unit = {}
     ) {
+        // 网盘记录：vodId 就是文件绝对地址，直接用记录的网盘源取认证信息即可
+        if (h.siteKey.startsWith("webdav:")) {
+            val id = h.siteKey.removePrefix("webdav:")
+            val src = configStore.getWebdavSources().firstOrNull { it.id == id }
+            if (src == null) {
+                onError("这条记录对应的网盘源已被删除")
+                return
+            }
+            if (h.vodId.isEmpty()) {
+                onError("这条记录缺少文件地址")
+                return
+            }
+
+            PlayerActivity.start(
+                context = context,
+                vodId = h.vodId,
+                siteKey = h.siteKey,
+                vodName = h.vodName,
+                lineName = "网盘",
+                allEpisodes = listOf(Episode(name = h.vodName, url = h.vodId)),
+                episodeIndex = 0,
+                isDirect = true,
+                siteApi = "",
+                startPosition = h.position,
+                authHeader = WebdavClient.authHeader(src).orEmpty(),
+                vodPic = h.vodPic,
+                lineIndex = 0
+            )
+            return
+        }
+
         val site = configStore.getConfig()?.sites?.find { it.key == h.siteKey }
         if (site == null) {
             onError("该站源已不在配置里")
