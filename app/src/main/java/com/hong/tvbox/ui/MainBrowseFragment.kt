@@ -40,11 +40,10 @@ class MainBrowseFragment : BrowseSupportFragment() {
         historyStore = HistoryStore(requireContext())
 
         title = "鸿蒙影视"
-        // 左侧 headers 区必须保留（HIDDEN 会让整个内容区不渲染），
-        // 但它的底色由 brandColor 决定：之前设成白色，整条竖栏是白的、
-        // 白色标题也看不见。改成和背景同色，视觉上就"消失"了。
-        headersState = HEADERS_ENABLED
-        isHeadersTransitionOnBackEnabled = true
+        // 不用左侧 headers 导航：整套内容都在行里。
+        // HIDDEN 会留下半隐藏状态（行标题与卡片不对齐、文字被裁），
+        // DISABLED 才是彻底移除，内容区独占整屏。
+        headersState = HEADERS_DISABLED
         brandColor = Color.parseColor("#141218")
         searchAffordanceColor = Color.parseColor("#FFEB3B")
         adapter = rowsAdapter
@@ -325,10 +324,11 @@ class FuncPresenter : Presenter() {
         val view = TextView(parent.context).apply {
             textSize = 20f
             setTextColor(Color.WHITE)
-            setPadding(dp(parent.context, 24), dp(parent.context, 20), dp(parent.context, 24), dp(parent.context, 20))
+            setPadding(dp(parent.context, 16), dp(parent.context, 18), dp(parent.context, 16), dp(parent.context, 18))
             setBackgroundColor(Color.parseColor("#33000000"))
-            width = dp(parent.context, 160)
-            height = dp(parent.context, 100)
+            // 8 个入口要在一屏放下：160dp × 8 会超出 1080p 屏宽，压到 132dp
+            width = dp(parent.context, 132)
+            height = dp(parent.context, 96)
             gravity = android.view.Gravity.CENTER
         }
         return ViewHolder(view)
