@@ -26,6 +26,8 @@ class MainBrowseFragment : BrowseSupportFragment() {
     private lateinit var favoriteStore: FavoriteStore
     private lateinit var historyStore: HistoryStore
     private val rowsAdapter = ArrayObjectAdapter(ListRowPresenter())
+    /** 防重入：抓取进行中再次 onResume 不要并发跑第二轮 */
+    private var crawlRunning = false
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         super.onActivityCreated(savedInstanceState)
@@ -77,6 +79,9 @@ class MainBrowseFragment : BrowseSupportFragment() {
         // 继续观看行（历史）
         addHistoryRow()
 
+        // 最近更新行（上一轮定时抓取的结果，没有就跳过）
+        addFeedRow()
+
         // 每个启用的站源加载内容
         val sites = configStore.getEnabledSiteList()
         sites.forEach { site ->
@@ -85,6 +90,55 @@ class MainBrowseFragment : BrowseSupportFragment() {
 
         if (sites.isEmpty()) {
             showNoSitesMessage()
+        }
+
+        // 超过 6 小时没抓过，就在后台跑一轮（不阻塞界面）
+        maybeCrawl(sites)
+    }
+
+    /** 「最近更新」：定时抓取攒下来的条目，点开进详情 */
+    private fun addFeedRow() {
+        val feed = configStore.getFeed()
+        if (feed.isEmpty()) return
+
+        val adapter = ArrayObjectAdapter(VodCardPresenter())
+        feed.take(20).forEach { adapter.add(it) }
+
+        val header = HeaderItem(rowsAdapter.size().toLong(), "最近更新 · ${feed.size} 部")
+        rowsAdapter.add(ListRow(header, adapter))
+    }
+
+    /**
+     * 定时抓取：每 6 小时一轮，抓各站最新片单并探测站源存活。
+     * 抓完立刻重建首页行，用户不用退出重进也能看到「最近更新」。
+     */
+    private fun maybeCrawl(sites: List<Site>) {
+        if (sites.isEmpty() || crawlRunning) return
+
+        val last = configStore.getLastCrawlAt()
+        val sixHours = 6 * 60 * 60 * 1000L
+        if (System.currentTimeMillis() - last < sixHours) return
+
+        crawlRunning = true
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val r = Crawler.run(sites)
+                configStore.saveFeed(r.list)
+                configStore.setLastCrawlAt(r.at)
+                configStore.saveCrawlSummary(
+                    "抓取 ${r.sites} 个站源，获得 ${r.items} 条" +
+                            if (r.dead.isEmpty()) "" else "，${r.dead.size} 个站源不可用"
+                )
+
+                if (isAdded && r.list.isNotEmpty()) {
+                    rowsAdapter.clear()
+                    loadContent()
+                }
+            } catch (e: Exception) {
+                // 抓取失败不影响浏览，下一轮再试
+            } finally {
+                crawlRunning = false
+            }
         }
     }
 

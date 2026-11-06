@@ -33,6 +33,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var configStatus: TextView
     private lateinit var liveInput: EditText
     private lateinit var liveStatus: TextView
+    private lateinit var crawlBtn: Button
+    private lateinit var crawlSummary: TextView
     private lateinit var sitesContainer: LinearLayout
     private lateinit var speedBtn: Button
     private lateinit var enableBestBtn: Button
@@ -215,6 +217,22 @@ class SettingsActivity : AppCompatActivity() {
         // ===== 历史记录 =====
         root.addView(sectionTitle("其他"))
 
+        // 定时抓取：首页每 6 小时自动跑一轮，这里可以手动触发一次
+        crawlBtn = Button(this).apply {
+            text = "立即抓取最新（每 6 小时自动）"
+            setOnClickListener { runCrawlNow() }
+        }
+        root.addView(crawlBtn)
+
+        crawlSummary = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.parseColor("#80FFFFFF"))
+            setPadding(0, dp(6), 0, dp(10))
+        }
+        val summary = configStore.getCrawlSummary()
+        crawlSummary.text = if (summary.isNotEmpty()) "上轮：$summary" else "还没有抓取记录"
+        root.addView(crawlSummary)
+
         val clearHistBtn = Button(this).apply {
             text = "清空观看历史"
             setOnClickListener {
@@ -226,6 +244,38 @@ class SettingsActivity : AppCompatActivity() {
 
         scroll.addView(root)
         setContentView(scroll)
+    }
+
+    /** 手动跑一轮定时抓取（首页每 6 小时也会自动跑） */
+    private fun runCrawlNow() {
+        val sites = configStore.getEnabledSiteList()
+        if (sites.isEmpty()) {
+            Toast.makeText(this, "没有可用站源", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        crawlBtn.isEnabled = false
+        crawlBtn.text = "抓取中…"
+        crawlSummary.text = "正在抓取 ${sites.size} 个站源，约 10~30 秒"
+
+        lifecycleScope.launch {
+            try {
+                val r = com.hong.tvbox.core.Crawler.run(sites)
+                configStore.saveFeed(r.list)
+                configStore.setLastCrawlAt(r.at)
+                val summary = "抓取 ${r.sites} 个站源，获得 ${r.items} 条" +
+                        if (r.dead.isEmpty()) "" else "，${r.dead.size} 个站源不可用"
+                configStore.saveCrawlSummary(summary)
+                crawlSummary.text = "上轮：$summary"
+                Toast.makeText(this@SettingsActivity, summary, Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                crawlSummary.text = "抓取失败：${e.message}"
+                Toast.makeText(this@SettingsActivity, "抓取失败：${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                crawlBtn.isEnabled = true
+                crawlBtn.text = "立即抓取最新（每 6 小时自动）"
+            }
+        }
     }
 
     private fun importSubscription() {

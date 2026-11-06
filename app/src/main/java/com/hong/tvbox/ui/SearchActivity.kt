@@ -38,10 +38,6 @@ class SearchActivity : AppCompatActivity() {
     private var isSearching = false
 
     companion object {
-        private val PREFS_NAME = "search_history"
-        private const val KEY_KEYWORDS = "keywords"
-        private const val MAX_KEYWORDS = 8
-
         fun start(context: Context) {
             context.startActivity(Intent(context, SearchActivity::class.java))
         }
@@ -345,28 +341,16 @@ class SearchActivity : AppCompatActivity() {
         historyContainer.addView(kwScroll)
     }
 
-    private fun getKeywords(): List<String> {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val raw = prefs.getString(KEY_KEYWORDS, "") ?: ""
-        return raw.split("\n").filter { it.isNotBlank() }
-    }
+    // 搜索历史统一放 ConfigStore，和配置/历史/收藏同一处，避免多套 prefs 分散
+
+    private fun getKeywords(): List<String> = configStore.getKeywords()
 
     private fun saveKeyword(kw: String) {
-        val old = getKeywords().toMutableList()
-        old.remove(kw)
-        old.add(0, kw)
-        val trimmed = old.take(MAX_KEYWORDS)
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_KEYWORDS, trimmed.joinToString("\n"))
-            .apply()
+        configStore.pushKeyword(kw)
     }
 
     private fun clearKeywords() {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .remove(KEY_KEYWORDS)
-            .apply()
+        configStore.clearKeywords()
     }
 
     private fun dp(value: Int): Int {

@@ -6,6 +6,7 @@ import com.google.gson.Gson
 import com.hong.tvbox.core.Config
 import com.hong.tvbox.core.LiveSource
 import com.hong.tvbox.core.Site
+import com.hong.tvbox.core.Vod
 
 /**
  * 配置存储 - 从 ArkTS Store.ets 移植
@@ -24,6 +25,10 @@ class ConfigStore(context: Context) {
         private const val KEY_SUB_LIVES = "sub_lives"
         private const val KEY_DIRECT_LIST = "direct_list"
         private const val KEY_PRIVACY_AGREED = "privacy_agreed"
+        private const val KEY_FEED = "feed"
+        private const val KEY_CRAWL_AT = "crawl_at"
+        private const val KEY_CRAWL_SUMMARY = "crawl_summary"
+        private const val KEY_KEYWORDS = "search_keywords"
         private const val KEY_LAST_UPDATE = "last_update"
     }
     
@@ -209,6 +214,60 @@ class ConfigStore(context: Context) {
 
     fun setPrivacyAgreed() {
         prefs.edit().putBoolean(KEY_PRIVACY_AGREED, true).apply()
+    }
+
+    // ---------- 定时抓取 ----------
+
+    /** 上一轮抓取到的「最近更新」条目 */
+    fun getFeed(): List<Vod> {
+        val json = prefs.getString(KEY_FEED, null) ?: return emptyList()
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<Vod>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveFeed(list: List<Vod>) {
+        prefs.edit().putString(KEY_FEED, gson.toJson(list)).apply()
+    }
+
+    fun getLastCrawlAt(): Long = prefs.getLong(KEY_CRAWL_AT, 0L)
+
+    fun setLastCrawlAt(t: Long) {
+        prefs.edit().putLong(KEY_CRAWL_AT, t).apply()
+    }
+
+    /** 上一轮抓取摘要，设置页展示用 */
+    fun getCrawlSummary(): String = prefs.getString(KEY_CRAWL_SUMMARY, "") ?: ""
+
+    fun saveCrawlSummary(s: String) {
+        prefs.edit().putString(KEY_CRAWL_SUMMARY, s).apply()
+    }
+
+    // ---------- 搜索历史 ----------
+
+    fun getKeywords(): List<String> {
+        val raw = prefs.getString(KEY_KEYWORDS, "") ?: ""
+        return raw.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    /** 记一条关键词：去重、最近用的排最前，最多 8 条 */
+    fun pushKeyword(kw: String): List<String> {
+        val k = kw.trim()
+        if (k.isEmpty()) return getKeywords()
+
+        val out = mutableListOf(k)
+        getKeywords().forEach {
+            if (it != k && out.size < 8) out.add(it)
+        }
+        prefs.edit().putString(KEY_KEYWORDS, out.joinToString("\n")).apply()
+        return out
+    }
+
+    fun clearKeywords() {
+        prefs.edit().remove(KEY_KEYWORDS).apply()
     }
     
     /**
