@@ -75,10 +75,10 @@ class SearchActivity : AppCompatActivity() {
             textSize = 18f
             setTextColor(Color.WHITE)
             setHintTextColor(Color.parseColor("#80FFFFFF"))
-            setBackgroundColor(Color.parseColor("#33000000"))
             setPadding(dp(22), dp(12), dp(52), dp(12))
             setOnEditorActionListener { _, _, _ -> doSearch(); true }
         }
+        searchEditText.tvInputStyle()
         topBar.addView(searchEditText, LinearLayout.LayoutParams(0, dp(52), 1f))
 
         clearTextBtn = TextView(this).apply {

@@ -310,19 +310,23 @@ class VodBrowseActivity : AppCompatActivity() {
         filterGroups.forEach { g ->
             val label = TextView(this).apply {
                 text = "${g.name}："
-                textSize = 13f
+                textSize = 14f
                 setTextColor(TvUi.DIM)
                 setPadding(dp(6), 0, dp(4), 0)
                 gravity = Gravity.CENTER_VERTICAL
             }
             filterRow.addView(label)
 
-            // 「全部」= 清掉该 key 的条件
-            filterRow.addView(filterChip("全部", filterState[g.key].isNullOrEmpty()) {
-                filterState.remove(g.key)
-                renderFilterRow()
-                loadPage(1)
-            })
+            // 「全部」= 清掉该 key 的条件。
+            // 站点数据里通常本身就带一个 {"n":"全部","v":""}，有的话不再重复插入
+            val hasAllInData = g.values.any { it.v.isEmpty() }
+            if (!hasAllInData) {
+                filterRow.addView(filterChip("全部", filterState[g.key].isNullOrEmpty()) {
+                    filterState.remove(g.key)
+                    renderFilterRow()
+                    loadPage(1)
+                })
+            }
 
             g.values.forEach { v ->
                 val selected = filterState[g.key] == v.v && v.v.isNotEmpty()
@@ -338,12 +342,12 @@ class VodBrowseActivity : AppCompatActivity() {
     private fun filterChip(label: String, selected: Boolean, onClick: () -> Unit): TextView {
         return TextView(this).apply {
             text = label
-            textSize = 13f
+            textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(dp(10), 0, dp(10), 0)
+            setPadding(dp(12), 0, dp(12), 0)
             setTextColor(if (selected) TvUi.SELECTED else Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)
             ).also { it.marginEnd = dp(6) }
             setOnClickListener { onClick() }
             onTvFocus(

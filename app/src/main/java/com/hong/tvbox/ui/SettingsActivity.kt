@@ -96,9 +96,9 @@ class SettingsActivity : AppCompatActivity() {
             textSize = 16f
             setTextColor(Color.WHITE)
             setHintTextColor(Color.parseColor("#80FFFFFF"))
-            setBackgroundColor(Color.TRANSPARENT)
             maxLines = 3
         }
+        subscribeInput.tvInputStyle()
         subGroup.addView(subscribeInput)
 
         val subBtnRow = LinearLayout(this).apply {
@@ -137,9 +137,9 @@ class SettingsActivity : AppCompatActivity() {
             textSize = 16f
             setTextColor(Color.WHITE)
             setHintTextColor(Color.parseColor("#80FFFFFF"))
-            setBackgroundColor(Color.TRANSPARENT)
             maxLines = 3
         }
+        configInput.tvInputStyle()
         cfgGroup.addView(configInput)
         configBtn = Button(this).apply {
             text = "导入配置"
@@ -168,10 +168,10 @@ class SettingsActivity : AppCompatActivity() {
             textSize = 16f
             setTextColor(Color.WHITE)
             setHintTextColor(Color.parseColor("#80FFFFFF"))
-            setBackgroundColor(Color.TRANSPARENT)
             maxLines = 3
             setText(configStore.getLiveSourceUrl() ?: "")
         }
+        liveInput.tvInputStyle()
         liveGroup.addView(liveInput)
 
         val liveBtnRow = LinearLayout(this).apply {

@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.MotionEvent
 import android.view.View
+import android.widget.EditText
 
 /**
  * TV 焦点样式。
@@ -78,4 +79,21 @@ fun View.onTvFocus(
         }
         false
     }
+}
+
+/**
+ * 输入框统一外观。
+ *
+ * 原来 EditText 背景是全透明，在深色页面上只能看到 hint 文字，
+ * 用户根本不知道哪里能点、能输入多长。给一层圆角深底 + 细描边。
+ */
+fun EditText.tvInputStyle() {
+    val d = resources.displayMetrics.density
+    background = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = 10f * d
+        setColor(0xFF1C1B1F.toInt())
+        setStroke((1f * d).toInt(), 0x40FFFFFF)
+    }
+    setPadding((14 * d).toInt(), (10 * d).toInt(), (14 * d).toInt(), (10 * d).toInt())
 }

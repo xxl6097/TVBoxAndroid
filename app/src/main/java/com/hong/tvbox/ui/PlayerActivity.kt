@@ -55,6 +55,8 @@ class PlayerActivity : AppCompatActivity() {
     private var pendingSeek: Long = 0L
     /** 直播模式：不记观看历史，上/下一集改叫上/下一线路 */
     private var isLiveMode = false
+    /** 直连/网盘这类一次性播放：不写观看历史，但按钮文案仍是「上/下一集」 */
+    private var skipHistory = false
     /** WebDAV 等需要认证的源，播放请求要带 Authorization */
     private var authHeader = ""
     /** 海报地址与线路索引：写观看历史时要用，否则「继续观看」没封面、续播还会串线路 */
@@ -117,6 +119,7 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_AUTH = "auth_header"
         const val EXTRA_VOD_PIC = "vod_pic"
         const val EXTRA_LINE_INDEX = "line_index"
+        const val EXTRA_SKIP_HISTORY = "skip_history"
 
         fun start(
             context: Context,
@@ -130,6 +133,7 @@ class PlayerActivity : AppCompatActivity() {
             siteApi: String,
             startPosition: Long = 0L,
             isLive: Boolean = false,
+            skipHistory: Boolean = false,
             authHeader: String = "",
             vodPic: String = "",
             lineIndex: Int = 0
@@ -146,6 +150,7 @@ class PlayerActivity : AppCompatActivity() {
                 putExtra(EXTRA_EP_NAMES, allEpisodes.map { it.name }.toTypedArray())
                 putExtra(EXTRA_START_POS, startPosition)
                 putExtra(EXTRA_IS_LIVE, isLive)
+                putExtra(EXTRA_SKIP_HISTORY, skipHistory)
                 putExtra(EXTRA_AUTH, authHeader)
                 putExtra(EXTRA_VOD_PIC, vodPic)
                 putExtra(EXTRA_LINE_INDEX, lineIndex)
@@ -173,6 +178,7 @@ class PlayerActivity : AppCompatActivity() {
         siteApi = intent.getStringExtra(EXTRA_SITE_API) ?: ""
         pendingSeek = intent.getLongExtra(EXTRA_START_POS, 0L)
         isLiveMode = intent.getBooleanExtra(EXTRA_IS_LIVE, false)
+        skipHistory = intent.getBooleanExtra(EXTRA_SKIP_HISTORY, false)
         authHeader = intent.getStringExtra(EXTRA_AUTH) ?: ""
         vodPic = intent.getStringExtra(EXTRA_VOD_PIC) ?: ""
         lineIndex = intent.getIntExtra(EXTRA_LINE_INDEX, 0)
@@ -821,8 +827,8 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun savePosition() {
-        // 直播不写观看历史：否则「继续观看」会被一堆频道占满
-        if (isLiveMode) return
+        // 直播不写观看历史：否则「继续观看」会被一堆频道占满；直连/网盘同理
+        if (isLiveMode || skipHistory) return
         player?.let { p ->
             if (isPrepared && p.currentPosition > 0) {
                 historyStore.addOrUpdate(History(

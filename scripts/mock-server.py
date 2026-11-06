@@ -50,7 +50,8 @@ class Handler(BaseHTTPRequestHandler):
                         "api": f"{BASE}/api",
                         "searchable": 1,
                         "quickSearch": 1,
-                        "filter": 0,
+                        "filter": 1,
+                        "ext": '{"filters":{"1":[{"key":"area","name":"地区","value":[{"n":"全部","v":""},{"n":"大陆","v":"大陆"},{"n":"美国","v":"美国"}]},{"key":"year","name":"年份","value":[{"n":"全部","v":""},{"n":"2025","v":"2025"}]}]}}',
                     },
                     {
                         "key": "mock2",
@@ -84,6 +85,9 @@ class Handler(BaseHTTPRequestHandler):
                     "class": [
                         {"type_id": "1", "type_name": "电影"},
                         {"type_id": "2", "type_name": "剧集"},
+                        {"type_id": "10", "type_name": "剧集合集"},
+                        {"type_id": "11", "type_name": "国产剧", "type_pid": 10},
+                        {"type_id": "12", "type_name": "美剧", "type_pid": 10},
                     ]
                 }
             elif ac == "videolist":
@@ -92,7 +96,14 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     tid = q.get("t", [""])[0]
                     pg = int(q.get("pg", ["1"])[0])
-                    items = [vod(pg * 10 + i) for i in range(1, 7)]
+                    if tid == "10":
+                        # 父分类本身没有直属影片：验证客户端会不会合并子分类
+                        items = []
+                    elif tid in ("11", "12"):
+                        base = 100 if tid == "11" else 200
+                        items = [vod(base + pg * 10 + i) for i in range(1, 4)]
+                    else:
+                        items = [vod(pg * 10 + i) for i in range(1, 7)]
                 body = {"page": 1, "pagecount": 2, "total": 12, "list": items}
             elif ac == "detail":
                 vid = q.get("ids", ["1"])[0]

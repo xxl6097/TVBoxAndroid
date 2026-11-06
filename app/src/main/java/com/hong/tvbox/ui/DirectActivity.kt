@@ -82,10 +82,9 @@ class DirectActivity : AppCompatActivity() {
             textSize = 16f
             setTextColor(Color.WHITE)
             setHintTextColor(TvUi.DIM)
-            setBackgroundColor(TvUi.CARD)
-            setPadding(dp(16), dp(10), dp(16), dp(10))
             maxLines = 2
         }
+        urlInput.tvInputStyle()
         inputRow.addView(urlInput, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
         val playBtn = Button(this).apply {
@@ -165,7 +164,7 @@ class DirectActivity : AppCompatActivity() {
         configStore.pushDirect(url)
         renderHistory()
 
-        // isLive=true 复用「不写观看历史 + 单条线路」的行为，避免污染继续观看
+        // skipHistory：不写观看历史，避免污染「继续观看」；按钮仍显示「上/下一集」
         PlayerActivity.start(
             context = this,
             vodId = "direct_$url",
@@ -176,7 +175,7 @@ class DirectActivity : AppCompatActivity() {
             episodeIndex = 0,
             isDirect = true,
             siteApi = "",
-            isLive = true
+            skipHistory = true
         )
     }
 

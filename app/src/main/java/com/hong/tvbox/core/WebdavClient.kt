@@ -71,13 +71,21 @@ object WebdavClient {
         authHeader(source)?.let { headers["Authorization"] = it }
 
         val xml = HttpClient.propfind(url, headers, 15000)
-        return parse(xml, path)
+
+        // 自身条目要按**绝对路径**比对：href 是 "/dav/电影/"，而我们手上的 path 是相对路径 "电影"，
+        // 拿相对路径去比永远不等，根目录就会把自己（dav）也列出来
+        val selfPath = try {
+            java.net.URI(url).path ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+        return parse(xml, selfPath)
     }
 
     /** 解析 207 Multi-Status 响应 */
-    fun parse(xml: String, currentPath: String): List<WebdavEntry> {
+    fun parse(xml: String, selfPath: String): List<WebdavEntry> {
         val out = mutableListOf<WebdavEntry>()
-        val current = currentPath.trimEnd('/')
+        val current = selfPath.trimEnd('/')
 
         val blocks = Regex("<[a-zA-Z0-9]*:?response[\\s>][\\s\\S]*?</[a-zA-Z0-9]*:?response>")
             .findAll(xml)

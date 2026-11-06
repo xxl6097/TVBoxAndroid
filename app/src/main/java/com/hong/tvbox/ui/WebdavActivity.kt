@@ -429,7 +429,7 @@ class WebdavActivity : AppCompatActivity() {
             episodeIndex = 0,
             isDirect = true,
             siteApi = "",
-            isLive = true,   // 复用：不写观看历史
+            skipHistory = true,   // 不写观看历史
             authHeader = WebdavClient.authHeader(src).orEmpty()
         )
     }
