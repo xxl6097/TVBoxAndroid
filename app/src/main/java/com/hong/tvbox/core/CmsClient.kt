@@ -304,6 +304,56 @@ class CmsClient(private val site: Site) {
         out
     }
 
+    /**
+     * 从站点 ext 里取出该分类的筛选组。
+     * ext 形如 {"class":[...],"filters":{"1":[{"key":"area","name":"地区","value":[{"n":"全部","v":""}]}]}}
+     * 没有 ext、不是 JSON、或该分类没配筛选时返回空数组。
+     */
+    fun filtersOf(tid: String): List<FilterGroup> {
+        val out = mutableListOf<FilterGroup>()
+        val txt = site.ext.trim()
+        if (txt.isEmpty() || txt[0] != '{') return out
+
+        val j: Map<String, Any> = try {
+            gson.fromJson(txt, Map::class.java) as Map<String, Any>
+        } catch (e: Exception) {
+            return out
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        val filters = j["filters"] as? Map<String, Any> ?: return out
+
+        @Suppress("UNCHECKED_CAST")
+        val groups = filters[tid] as? List<Any> ?: return out
+
+        groups.forEach { item ->
+            @Suppress("UNCHECKED_CAST")
+            val g = item as? Map<String, Any> ?: return@forEach
+            val key = (g["key"] as? String) ?: ""
+            val name = (g["name"] as? String) ?: key
+
+            @Suppress("UNCHECKED_CAST")
+            val values = g["value"] as? List<Any>
+
+            val fg = FilterGroup(key = key, name = name)
+            values?.forEach { v ->
+                @Suppress("UNCHECKED_CAST")
+                val vm = v as? Map<String, Any> ?: return@forEach
+                val n = (vm["n"] as? String) ?: ""
+                val value = (vm["v"] as? String) ?: ""
+                if (n.isNotEmpty()) {
+                    fg.values.add(FilterValue(n = n, v = value))
+                }
+            }
+
+            if (fg.key.isNotEmpty() && fg.values.isNotEmpty()) {
+                out.add(fg)
+            }
+        }
+
+        return out
+    }
+
     suspend fun detail(id: String): Vod = withContext(Dispatchers.IO) {
         val q = "ac=detail&ids=${URLEncoder.encode(id, "UTF-8")}"
         val txt = fetch(u(q), TTL_DETAIL, 18000)

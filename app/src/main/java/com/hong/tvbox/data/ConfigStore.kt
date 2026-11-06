@@ -22,6 +22,8 @@ class ConfigStore(context: Context) {
         private const val KEY_SUBSCRIBE_URL = "subscribe_url"
         private const val KEY_LIVE_SOURCE_URL = "live_source_url"
         private const val KEY_SUB_LIVES = "sub_lives"
+        private const val KEY_DIRECT_LIST = "direct_list"
+        private const val KEY_PRIVACY_AGREED = "privacy_agreed"
         private const val KEY_LAST_UPDATE = "last_update"
     }
     
@@ -173,6 +175,40 @@ class ConfigStore(context: Context) {
     /** 订阅里带的直播源名（设置页展示用） */
     fun getSubLiveName(url: String): String {
         return getSubLives().firstOrNull { it.url == url }?.name ?: ""
+    }
+
+    // ---------- 直连播放历史 ----------
+
+    fun getDirectList(): List<String> {
+        val json = prefs.getString(KEY_DIRECT_LIST, null) ?: return emptyList()
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** 记一条直连地址，去重、最近用的排最前，最多留 12 条 */
+    fun pushDirect(url: String) {
+        val old = getDirectList()
+        val out = mutableListOf(url)
+        old.forEach {
+            if (it != url && out.size < 12) out.add(it)
+        }
+        prefs.edit().putString(KEY_DIRECT_LIST, gson.toJson(out)).apply()
+    }
+
+    // ---------- 首启隐私同意 ----------
+
+    /**
+     * 隐私政策是否已同意。
+     * 必须在任何联网动作之前判断：应用市场要求首启先展示政策、用户点同意后才允许联网。
+     */
+    fun isPrivacyAgreed(): Boolean = prefs.getBoolean(KEY_PRIVACY_AGREED, false)
+
+    fun setPrivacyAgreed() {
+        prefs.edit().putBoolean(KEY_PRIVACY_AGREED, true).apply()
     }
     
     /**

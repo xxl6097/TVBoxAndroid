@@ -92,6 +92,7 @@ class MainBrowseFragment : BrowseSupportFragment() {
         val funcs = listOf(
             FuncItem("点播", "vod"),
             FuncItem("直播", "live"),
+            FuncItem("直连", "direct"),
             FuncItem("搜索", "search"),
             FuncItem("收藏", "favorites"),
             FuncItem("历史", "history"),
@@ -183,6 +184,7 @@ class MainBrowseFragment : BrowseSupportFragment() {
                     when (item.action) {
                         "vod" -> VodBrowseActivity.start(ctx)
                         "live" -> LiveActivity.start(ctx)
+                        "direct" -> DirectActivity.start(ctx)
                         "search" -> startActivity(Intent(ctx, SearchActivity::class.java))
                         "favorites" -> FavoritesActivity.start(ctx)
                         "history" -> HistoryActivity.start(ctx)

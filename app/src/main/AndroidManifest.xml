@@ -83,5 +83,11 @@
             android:screenOrientation="landscape"
             android:configChanges="keyboard|keyboardHidden|navigation|screenSize|orientation" />
 
+        <activity
+            android:name=".ui.DirectActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|screenSize|orientation" />
+
     </application>
 </manifest>

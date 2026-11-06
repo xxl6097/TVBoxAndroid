@@ -27,6 +27,7 @@ class VodBrowseActivity : AppCompatActivity() {
 
     private lateinit var titleView: TextView
     private lateinit var catRow: LinearLayout
+    private lateinit var filterRow: LinearLayout
     private lateinit var gridLayout: GridLayout
     private lateinit var pageInfo: TextView
     private lateinit var prevBtn: Button
@@ -40,6 +41,23 @@ class VodBrowseActivity : AppCompatActivity() {
     private var currentPage = 1
     private var pageCount = 1
     private var loading = false
+
+    /** 当前分类可用的筛选组（站点 ext 里的 filters） */
+    private var filterGroups = listOf<FilterGroup>()
+    /** 已选筛选条件：key -> value（value 为空表示「全部」） */
+    private val filterState = mutableMapOf<String, String>()
+
+    /** 拼成 &area=大陆&year=2025 这样的尾部查询串 */
+    private fun buildExtra(): String {
+        if (filterState.isEmpty()) return ""
+        val sb = StringBuilder()
+        filterState.forEach { (k, v) ->
+            if (v.isNotEmpty()) {
+                sb.append('&').append(k).append('=').append(java.net.URLEncoder.encode(v, "UTF-8"))
+            }
+        }
+        return sb.toString()
+    }
 
     companion object {
         private const val EXTRA_SITE_KEY = "site_key"
@@ -108,6 +126,16 @@ class VodBrowseActivity : AppCompatActivity() {
         val catScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
         catScroll.addView(catRow)
         root.addView(catScroll)
+
+        // 筛选行（站点 ext 里配了 filters 才有内容）
+        filterRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            visibility = View.GONE
+            setPadding(0, 0, 0, dp(6))
+        }
+        val filterScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        filterScroll.addView(filterRow)
+        root.addView(filterScroll)
 
         // 状态栏
         statusView = TextView(this).apply {
@@ -211,6 +239,8 @@ class VodBrowseActivity : AppCompatActivity() {
                 val first = categories.firstOrNull()
                 if (first != null) {
                     currentCat = first
+                    filterState.clear()
+                    applyFilters(cms, first)
                     loadPage(1)
                 } else {
                     showEmpty("该站源没有返回分类")
@@ -232,7 +262,9 @@ class VodBrowseActivity : AppCompatActivity() {
                 setOnClickListener {
                     if (currentCat?.id != cat.id) {
                         currentCat = cat
+                        filterState.clear()
                         buildCategoryChips()
+                        applyFilters(CmsClient(site ?: return@setOnClickListener), cat)
                         loadPage(1)
                     }
                 }
@@ -261,6 +293,67 @@ class VodBrowseActivity : AppCompatActivity() {
         }
     }
 
+    /** 取当前分类的筛选组并渲染（没有 filters 就隐藏整行） */
+    private fun applyFilters(cms: CmsClient, cat: Category) {
+        filterGroups = cms.filtersOf(cat.id)
+        renderFilterRow()
+    }
+
+    private fun renderFilterRow() {
+        filterRow.removeAllViews()
+        if (filterGroups.isEmpty()) {
+            filterRow.visibility = View.GONE
+            return
+        }
+        filterRow.visibility = View.VISIBLE
+
+        filterGroups.forEach { g ->
+            val label = TextView(this).apply {
+                text = "${g.name}："
+                textSize = 13f
+                setTextColor(TvUi.DIM)
+                setPadding(dp(6), 0, dp(4), 0)
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            filterRow.addView(label)
+
+            // 「全部」= 清掉该 key 的条件
+            filterRow.addView(filterChip("全部", filterState[g.key].isNullOrEmpty()) {
+                filterState.remove(g.key)
+                renderFilterRow()
+                loadPage(1)
+            })
+
+            g.values.forEach { v ->
+                val selected = filterState[g.key] == v.v && v.v.isNotEmpty()
+                filterRow.addView(filterChip(v.n, selected) {
+                    filterState[g.key] = v.v
+                    renderFilterRow()
+                    loadPage(1)
+                })
+            }
+        }
+    }
+
+    private fun filterChip(label: String, selected: Boolean, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(dp(10), 0, dp(10), 0)
+            setTextColor(if (selected) TvUi.SELECTED else Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)
+            ).also { it.marginEnd = dp(6) }
+            setOnClickListener { onClick() }
+            onTvFocus(
+                normalColor = if (selected) TvUi.CARD_HI else TvUi.CARD,
+                focusColor = 0x66FFFFFF,
+                scale = 1f
+            )
+        }
+    }
+
     private fun gotoPage(p: Int) {
         if (p < 1 || p > pageCount || loading || p == currentPage) return
         loadPage(p)
@@ -276,6 +369,7 @@ class VodBrowseActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val cms = CmsClient(s)
+                cms.setExtra(buildExtra())
 
                 // 父分类通常没有直属影片：若它下面挂着子分类，就把父 + 子一起拉取合并，
                 // 否则点「电视剧」会看到空列表（鸿蒙版同样处理）
