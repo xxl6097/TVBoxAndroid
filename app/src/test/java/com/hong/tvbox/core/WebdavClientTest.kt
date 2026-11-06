@@ -73,6 +73,27 @@ class WebdavClientTest {
         </d:multistatus>
     """.trimIndent()
 
+    /** 极空间真实响应（2026-11 抓取）：所有条目都是 collection、都没有 contentlength、文件 href 带斜杠 */
+    private val zspaceRealXml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <D:multistatus xmlns:D="DAV:">
+          <D:response>
+            <D:href>/dav/%E8%BF%85%E9%9B%B7%E4%B8%8B%E8%BD%BD/%E7%94%B5%E5%BD%B1/</D:href>
+            <D:propstat><D:prop>
+              <D:resourcetype><D:collection xmlns:D="DAV:"/></D:resourcetype>
+              <D:displayname>电影</D:displayname>
+            </D:prop></D:propstat>
+          </D:response>
+          <D:response>
+            <D:href>/dav/%E8%BF%85%E9%9B%B7%E4%B8%8B%E8%BD%BD/%E7%94%B5%E5%BD%B1/%E5%87%A1%E4%BA%BA%E4%BF%AE%E4%BB%99%E4%BC%A0%E9%87%8D%E8%BF%94%E5%A4%A9%E5%8D%9706.mp4/</D:href>
+            <D:propstat><D:prop>
+              <D:displayname>凡人修仙传重返天南06.mp4</D:displayname>
+              <D:resourcetype><D:collection xmlns:D="DAV:"/></D:resourcetype>
+            </D:prop></D:propstat>
+          </D:response>
+        </D:multistatus>
+    """.trimIndent()
+
     private val selfPath = "/dav/电影"
 
     @Test
@@ -107,6 +128,37 @@ class WebdavClientTest {
 
         assertTrue("凡人应是目录", dir.isDir)
         assertFalse("测试.mp4 应是文件", file.isDir)
+    }
+
+    @Test
+    fun `极空间真实响应 - 全是collection靠扩展名识别文件`() {
+        // selfPath 换成真实目录，避免自身条目被过滤掉后拿不到数据
+        val list = WebdavClient.parse(
+            zspaceRealXml,
+            "/dav/迅雷下载/电影"
+        )
+
+        assertTrue("解析结果不应为空", list.isNotEmpty())
+
+        val file = list.first { it.name == "凡人修仙传重返天南06.mp4" }
+        assertFalse("mp4 必须是文件，否则点进去是空目录", file.isDir)
+    }
+
+    @Test
+    fun `文件名带点但不是媒体扩展名 - 仍视为目录`() {
+        val xml = """
+            <?xml version="1.0"?>
+            <D:multistatus xmlns:D="DAV:">
+              <D:response>
+                <D:href>/dav/%E5%89%A7/S01.E01/</D:href>
+                <D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat>
+              </D:response>
+            </D:multistatus>
+        """.trimIndent()
+
+        val list = WebdavClient.parse(xml, "/dav/剧")
+        assertEquals(1, list.size)
+        assertTrue("S01.E01 不是媒体扩展名，应按目录处理", list[0].isDir)
     }
 
     @Test

@@ -126,21 +126,23 @@ object WebdavClient {
             // 只靠 <collection/> 标签会误判：部分服务端（如极空间）对文件也带这个标签，
             // 结果 mp4 全被当成文件夹、点进去是空目录。
             // 只有整份响应都没有斜杠风格的 href 时，才退回标签判断。
-            // 目录判定顺序（真实服务端各不相同，必须按可靠性从高到低）：
-            // 1) 有非零 getcontentlength → 一定是文件。极空间对所有 href 都加尾斜杠，
-            //    只看斜杠会把 mp4 全判成文件夹，点进去是空目录
-            // 2) href 带尾斜杠 → 目录（RFC 4918 规范）
-            // 3) 兜底才看 resourcetype 的 collection 标签
-            val lenStr = tag(b, "getcontentlength")
-            val len = lenStr.toLongOrNull() ?: -1L
+            val name = decoded.trimEnd('/').substringAfterLast('/')
+            if (name.isEmpty()) return@forEach
+
+            // 目录判定（按可靠性排序，各家实现差异很大）：
+            // 1) getcontentlength > 0 → 文件
+            // 2) 名字是媒体扩展名 → 文件
+            //    极空间对所有条目都返回 <collection/>、都不给 contentlength、
+            //    文件 href 还带尾斜杠，只能靠扩展名区分；不加这条会把 mp4 全判成文件夹
+            // 3) href 带尾斜杠 → 目录（RFC 4918）
+            // 4) 兜底看 resourcetype
+            val len = tag(b, "getcontentlength").toLongOrNull() ?: -1L
             val isDir = when {
                 len > 0 -> false
+                isVideo(name) || isImage(name) -> false
                 slashStyleHref -> decoded.endsWith("/")
                 else -> b.contains(":collection") || b.contains("<collection")
             }
-
-            val name = decoded.trimEnd('/').substringAfterLast('/')
-            if (name.isEmpty()) return@forEach
 
             val size = tag(b, "getcontentlength").toLongOrNull() ?: 0L
             val mtime = tag(b, "getlastmodified")
