@@ -75,7 +75,9 @@ data class VodPage(
 
 data class Episode(
     var name: String = "",
-    var url: String = ""
+    var url: String = "",
+    /** 备用线路：直播同名台常有多条地址，播挂了按这个顺序换线 */
+    var urls: MutableList<String> = mutableListOf()
 )
 
 // ============ 直播 ============

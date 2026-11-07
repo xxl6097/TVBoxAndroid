@@ -16,6 +16,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.hong.tvbox.core.*
 import com.hong.tvbox.data.ConfigStore
 import com.hong.tvbox.data.HistoryStore
@@ -65,6 +67,10 @@ class PlayerActivity : AppCompatActivity() {
 
     /** 本轮播放是否已经因错误自动换过线路（避免无限换线） */
     private var autoSwitched = false
+    /** 直播当前台的全部线路（含主线路），播挂了按这个顺序换线 */
+    private var liveCandidates: List<String> = emptyList()
+    /** 当前用的是第几条线路（从 0 起） */
+    private var liveLineIdx = 0
 
     // ---- 画质 ----
     private val qualityNames = arrayOf("自动", "1080P", "720P", "480P")
@@ -134,6 +140,7 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_VOD_PIC = "vod_pic"
         const val EXTRA_LINE_INDEX = "line_index"
         const val EXTRA_SKIP_HISTORY = "skip_history"
+        const val EXTRA_EP_JSON = "ep_json"
 
         fun start(
             context: Context,
@@ -160,6 +167,7 @@ class PlayerActivity : AppCompatActivity() {
                 putExtra(EXTRA_EPISODE_INDEX, episodeIndex)
                 putExtra(EXTRA_IS_DIRECT, isDirect)
                 putExtra(EXTRA_SITE_API, siteApi)
+                putExtra(EXTRA_EP_JSON, Gson().toJson(allEpisodes))
                 putExtra(EXTRA_EP_URLS, allEpisodes.map { it.url }.toTypedArray())
                 putExtra(EXTRA_EP_NAMES, allEpisodes.map { it.name }.toTypedArray())
                 putExtra(EXTRA_START_POS, startPosition)
@@ -208,10 +216,20 @@ class PlayerActivity : AppCompatActivity() {
             else -> 1
         }
 
-        val epUrls = intent.getStringArrayExtra(EXTRA_EP_URLS) ?: arrayOf()
-        val epNames = intent.getStringArrayExtra(EXTRA_EP_NAMES) ?: arrayOf()
-        allEpisodes = epUrls.indices.map { i ->
-            Episode(name = epNames.getOrElse(i) { "第${i + 1}集" }, url = epUrls[i])
+        val epJson = intent.getStringExtra(EXTRA_EP_JSON)
+        allEpisodes = if (!epJson.isNullOrEmpty()) {
+            try {
+                val type = object : TypeToken<List<Episode>>() {}.type
+                Gson().fromJson<List<Episode>>(epJson, type) ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            val epUrls = intent.getStringArrayExtra(EXTRA_EP_URLS) ?: arrayOf()
+            val epNames = intent.getStringArrayExtra(EXTRA_EP_NAMES) ?: arrayOf()
+            epUrls.indices.map { i ->
+                Episode(name = epNames.getOrElse(i) { "第${i + 1}集" }, url = epUrls[i])
+            }
         }
 
         if (allEpisodes.isEmpty()) {
@@ -691,7 +709,16 @@ class PlayerActivity : AppCompatActivity() {
                     resolvedVia = "爬虫"
                 } else if (isDirectLine) {
                     // 直连模式：地址本身就是流
-                    resolvedUrl = episode.url
+                    if (isLiveMode && episode.urls.isNotEmpty()) {
+                        // 直播：同台的多条线路全备好，先播主线路，挂了再换线
+                        liveCandidates = episode.urls
+                        liveLineIdx = 0
+                        resolvedUrl = episode.urls[0]
+                    } else {
+                        liveCandidates = emptyList()
+                        liveLineIdx = 0
+                        resolvedUrl = episode.url
+                    }
                     resolvedVia = "直连"
                 } else {
                     // 走解析
@@ -739,8 +766,13 @@ class PlayerActivity : AppCompatActivity() {
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(20_000)
             .setAllowCrossProtocolRedirects(true)
-        if (authHeader.isNotEmpty()) {
-            httpFactory.setDefaultRequestProperties(mapOf("Authorization" to authHeader))
+        // 请求头：鉴权头（WebDAV Basic）之外，解析器返回的自定义头（Referer/UA/Cookie）
+        // 也必须一并挂到数据源，否则某些解析接口要求的头没带上、地址会被当成无效。
+        val headers = mutableMapOf<String, String>()
+        if (authHeader.isNotEmpty()) headers["Authorization"] = authHeader
+        if (resolvedHeaders.isNotEmpty()) headers.putAll(resolvedHeaders)
+        if (headers.isNotEmpty()) {
+            httpFactory.setDefaultRequestProperties(headers)
         }
 
         val mediaFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpFactory)
@@ -818,13 +850,22 @@ class PlayerActivity : AppCompatActivity() {
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    // 鸿蒙版：只有直播失败才自动换下一台，点播失败不自动换集（只弹错误页+重试）
-                    val hasNext = currentEpisodeIndex + 1 < allEpisodes.size
-                    if (isLiveMode && hasNext && !autoSwitched) {
-                        autoSwitched = true
-                        showTip("当前台异常，切换下一台")
-                        switchEpisode(1)
-                        return
+                    // 直播：先试同台备用线路，试完再换下一台；点播失败不自动换集（只弹错误页+重试）
+                    if (isLiveMode) {
+                        if (liveLineIdx + 1 < liveCandidates.size) {
+                            liveLineIdx++
+                            resolvedUrl = liveCandidates[liveLineIdx]
+                            showTip("线路异常，切备用线路 ${liveLineIdx + 1}/${liveCandidates.size}")
+                            initPlayer()
+                            return
+                        }
+                        val hasNext = currentEpisodeIndex + 1 < allEpisodes.size
+                        if (hasNext && !autoSwitched) {
+                            autoSwitched = true
+                            showTip("当前台异常，切换下一台")
+                            switchEpisode(1)
+                            return
+                        }
                     }
                     // 服务器返回的内容不是视频（不是 4xx/5xx，而是 HTML/文本），
                     // 这种最常见于地址不对、被 UA 拦截、或需要登录态 —— 给一句能指导用户的话

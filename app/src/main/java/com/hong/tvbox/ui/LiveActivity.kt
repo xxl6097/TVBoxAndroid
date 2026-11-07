@@ -22,6 +22,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 直播页 - 对照鸿蒙 LivePage.ets
@@ -367,9 +368,10 @@ class LiveActivity : AppCompatActivity() {
 
     private fun play(ch: Channel) {
         // 把「当前目录全部频道」都塞进播放列表，播放页上一台/下一台=换台，
-        // 失效自动顺延到下一台。每个频道的主线路作为该「集」的地址。
+        // 失效自动顺延到下一台。每个频道把同台全部线路都带上，播挂了先换线再换台。
         val eps = currentChannels.map { c ->
-            Episode(c.name, if (c.urls.isEmpty()) c.url else c.urls[0])
+            val urls = if (c.urls.isEmpty()) mutableListOf(c.url) else c.urls.toMutableList()
+            Episode(name = c.name, url = urls.firstOrNull() ?: c.url, urls = urls)
         }
         val idx = currentChannels.indexOfFirst { it === ch }.takeIf { it >= 0 } ?: 0
 
@@ -472,8 +474,15 @@ class LiveActivity : AppCompatActivity() {
 
         Toast.makeText(this, "开始测速 ${targets.size} 个直播源…", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
-            val results = targets.map { (name, url) -> rankOne(name, url) }
-                .sortedWith(compareByDescending<LiveRank> { it.score }.thenBy { -it.count }.thenBy { it.ms })
+            // 分批并发（每批 3 个）：弱网下全量并发会互相抢带宽，测出来的速度失真
+            val results = mutableListOf<LiveRank>()
+            targets.chunked(3).forEach { batch ->
+                val batchRes = coroutineScope {
+                    batch.map { (name, url) -> async(Dispatchers.IO) { rankOne(name, url) } }.awaitAll()
+                }
+                results.addAll(batchRes)
+            }
+            results.sortWith(compareByDescending<LiveRank> { it.score }.thenBy { -it.count }.thenBy { it.ms })
             showRankDialog(results)
         }
     }
@@ -481,7 +490,8 @@ class LiveActivity : AppCompatActivity() {
     private suspend fun rankOne(name: String, url: String): LiveRank {
         val t0 = System.currentTimeMillis()
         val groups = try {
-            LiveClient.load(url)
+            // 外层硬超时：源站半死不活时别让整个测速卡死
+            withTimeoutOrNull(8000) { LiveClient.load(url) } ?: throw Exception("超时")
         } catch (e: Exception) {
             return LiveRank(name, url, false, -1, 0, 0, 0)
         }
