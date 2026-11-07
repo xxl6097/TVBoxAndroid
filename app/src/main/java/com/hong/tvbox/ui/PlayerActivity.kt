@@ -329,22 +329,22 @@ class PlayerActivity : AppCompatActivity() {
             setPadding(0, dp(8), 0, 0)
         }
         osdPrevBtn = Button(this).apply {
-            text = if (isLiveMode) "上一线路" else "上一集"
+            text = if (isLiveMode) "上一台" else "上一集"
             setOnClickListener { switchEpisode(-1) }
         }
         controlRow.addView(osdPrevBtn)
 
         // 快退 / 快进 10 秒（遥控器左右键的等价按钮）
-        controlRow.addView(osdButton("« 10s") { seekBy(-10_000L) })
+        controlRow.addView(osdButton("−  10 秒") { seekBy(-10_000L) })
         osdPlayPauseBtn = Button(this).apply {
             text = "播放"
             setOnClickListener { togglePlay() }
         }
         controlRow.addView(osdPlayPauseBtn)
-        controlRow.addView(osdButton("10s »") { seekBy(10_000L) })
+        controlRow.addView(osdButton("+  10 秒") { seekBy(10_000L) })
 
         osdNextBtn = Button(this).apply {
-            text = if (isLiveMode) "下一线路" else "下一集"
+            text = if (isLiveMode) "下一台" else "下一集"
             setOnClickListener { switchEpisode(1) }
         }
         controlRow.addView(osdNextBtn)
@@ -456,16 +456,16 @@ class PlayerActivity : AppCompatActivity() {
                 return true
             }
 
-            // 鸿蒙版：↑ / ↓ 是 1 分钟
+            // 鸿蒙版：↑ / ↓ 是音量 ±（VOL_STEP=0.05），不是 seek
             KeyEvent.KEYCODE_DPAD_UP -> {
                 if (osdFocused) return super.onKeyDown(keyCode, event)
-                seekBy(60_000L)
+                changeVolume(0.05f)
                 return true
             }
 
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (osdFocused) return super.onKeyDown(keyCode, event)
-                seekBy(-60_000L)
+                changeVolume(-0.05f)
                 return true
             }
 
@@ -743,12 +743,11 @@ class PlayerActivity : AppCompatActivity() {
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    // 还有别的线路就先自动换一条，换过仍失败才弹错误页，
-                    // 避免用户看到「播放失败」就以为这片看不了
+                    // 鸿蒙版：只有直播失败才自动换下一台，点播失败不自动换集（只弹错误页+重试）
                     val hasNext = currentEpisodeIndex + 1 < allEpisodes.size
-                    if (hasNext && !autoSwitched) {
+                    if (isLiveMode && hasNext && !autoSwitched) {
                         autoSwitched = true
-                        showTip(if (isLiveMode) "当前线路异常，切换下一线路" else "当前线路异常，切换下一集")
+                        showTip("当前台异常，切换下一台")
                         switchEpisode(1)
                         return
                     }

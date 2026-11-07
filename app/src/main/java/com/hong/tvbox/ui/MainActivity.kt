@@ -69,6 +69,10 @@ class MainActivity : AppCompatActivity() {
     private var pendingSites = 0
     private var crawlRunning = false
 
+    /** 「清空全部」二次确认窗口：6 秒内再点一次才真清 */
+    private var confirmClearHist = false
+    private val clearHistHandler = Handler(Looper.getMainLooper())
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         configStore = ConfigStore(this)
@@ -123,6 +127,11 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
         renderDynamic()
+
+        // 首次使用（且已同意隐私）弹三步引导
+        if (!configStore.guideDone()) {
+            showGuideDialog()
+        }
 
         // TV 上没有触摸，必须主动给第一个可聚焦控件一个初始焦点，
         // 否则方向键只会滚页面，看起来像"遥控器失灵"
@@ -256,11 +265,90 @@ class MainActivity : AppCompatActivity() {
         val history = historyStore.getAll()
         if (history.isEmpty()) return
 
-        content.addView(sectionTitle("继续观看"))
+        content.addView(continueHeader(history))
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         history.take(12).forEach { row.addView(historyCard(it)) }
         content.addView(hScroller(row))
+    }
+
+    /** 「继续观看」标题行：左侧标题 + N 部，右侧「清空」（二次确认）+「全部 ›」 */
+    private fun continueHeader(history: List<History>): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(2), dp(14), 0, dp(8))
+        }
+        bar.addView(TextView(this).apply {
+            text = "继续观看"
+            textSize = 21f
+            setTextColor(TvUi.TEXT)
+        })
+        bar.addView(TextView(this).apply {
+            text = "${history.size} 部"
+            textSize = 13f
+            setTextColor(TvUi.DIM)
+            setPadding(dp(10), 0, 0, 0)
+        })
+        bar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+
+        bar.addView(sectionLink(if (confirmClearHist) "确认清空？" else "清空", confirmClearHist) {
+            toggleClearHistory(history.size)
+        })
+        bar.addView(sectionLink("全部 ›", false) { HistoryActivity.start(this) })
+        return bar
+    }
+
+    /** 标题行右侧的胶囊链接按钮 */
+    private fun sectionLink(label: String, warn: Boolean, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 13f
+            setTextColor(if (warn) TvUi.WARN else TvUi.SUB)
+            gravity = Gravity.CENTER
+            setOnClickListener {
+                Feedback.tap(this@MainActivity)
+                onClick()
+            }
+            onTvFocus(scale = 1f)
+            setPadding(dp(12), 0, dp(12), 0)
+            layoutParams = LinearLayout.LayoutParams(dp(84), dp(30)).also { it.marginStart = dp(6) }
+        }
+    }
+
+    private fun toggleClearHistory(count: Int) {
+        if (count == 0) return
+        if (!confirmClearHist) {
+            confirmClearHist = true
+            Toast.makeText(this, "再点一次确认清空（共 $count 条），6 秒内有效", Toast.LENGTH_SHORT).show()
+            clearHistHandler.removeCallbacksAndMessages(null)
+            clearHistHandler.postDelayed({ confirmClearHist = false }, 6000)
+            renderDynamic()
+            return
+        }
+        confirmClearHist = false
+        historyStore.clear()
+        Toast.makeText(this, "已清空 $count 条记录", Toast.LENGTH_SHORT).show()
+        renderDynamic()
+    }
+
+    private fun removeHistory(h: History) {
+        historyStore.remove(h.vodId, h.siteKey)
+        Toast.makeText(this, "已删除「${h.vodName}」", Toast.LENGTH_SHORT).show()
+        renderDynamic()
+    }
+
+    /** 相对时间：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 */
+    private fun ago(t: Long): String {
+        if (t <= 0) return ""
+        val d = System.currentTimeMillis() - t
+        return when {
+            d < 60_000 -> "刚刚"
+            d < 3_600_000 -> "${d / 60_000} 分钟前"
+            d < 86_400_000 -> "${d / 3_600_000} 小时前"
+            d < 172_800_000 -> "昨天"
+            else -> "${d / 86_400_000} 天前"
+        }
     }
 
     private fun historyCard(h: History): View {
@@ -291,18 +379,39 @@ class MainActivity : AppCompatActivity() {
         cover.addView(bar, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(4), Gravity.BOTTOM
         ))
+        // 单条删除：右上角小圆「✕」
+        cover.addView(TextView(this).apply {
+            text = "✕"
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#B3000000"))
+            setOnClickListener {
+                Feedback.tap(this@MainActivity)
+                removeHistory(h)
+            }
+            onTvFocus(normalColor = Color.parseColor("#B3000000"), focusColor = TvUi.WARN, scale = 1f)
+        }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.TOP or Gravity.END).also {
+            it.topMargin = dp(5)
+            it.rightMargin = dp(5)
+        })
         card.addView(cover, LinearLayout.LayoutParams(dp(196), dp(112)))
 
         card.addView(elided(h.vodName, 13f, TvUi.TEXT).apply { setPadding(0, dp(6), 0, 0) })
 
-        // 副标题：有进度就显示「看到 1:13 / 2:00:05」。
+        // 副标题：第几集 · 看到多久 / 相对时间。
         // 网盘/直连记录的剧集名和片名相同，直接展示会重复成两行一样的字
-        val ep = when {
-            h.duration > 0 && h.position > 0 -> "看到 ${fmtTime(h.position)} / ${fmtTime(h.duration)}"
-            h.episodeName.isNotEmpty() && h.episodeName != h.vodName -> h.episodeName
-            else -> "第 ${h.episodeIndex + 1} 集"
+        val metaParts = mutableListOf<String>()
+        val ratio = if (h.duration > 0) (h.position.toFloat() / h.duration).coerceIn(0f, 1f) else 0f
+        if (h.episodeName.isNotEmpty() && h.episodeName != h.vodName) {
+            metaParts.add(h.episodeName)
         }
-        card.addView(elided(ep, 11f, TvUi.DIM))
+        if (ratio > 0f) {
+            metaParts.add("已看 ${(ratio * 100).toInt()}%")
+        }
+        val ago = ago(h.updatedAt)
+        if (ago.isNotEmpty()) metaParts.add(ago)
+        card.addView(elided(metaParts.joinToString(" · "), 11f, TvUi.DIM))
 
         card.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -336,7 +445,7 @@ class MainActivity : AppCompatActivity() {
     private fun loadSites() {
         val sites = configStore.getEnabledSiteList()
         if (sites.isEmpty()) {
-            content.addView(guideBlock())
+            content.addView(guideBlock(configStore.getConfig() != null))
             return
         }
 
@@ -469,11 +578,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun guideBlock(): View {
+    private fun guideBlock(hasConfig: Boolean): View {
         val block = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(16), dp(20), dp(20))
             setBackgroundColor(TvUi.CARD)
+        }
+
+        if (hasConfig) {
+            // 已订阅但还没有可用的站源内容
+            block.addView(TextView(this).apply {
+                text = "已订阅，正在拉取最新影片…"
+                textSize = 16f
+                setTextColor(TvUi.SUB)
+            })
+            block.addView(TextView(this).apply {
+                text = "也可以直接点上方「点播」按分类浏览，或到「设置 → 立即抓取最新」手动更新。"
+                textSize = 13f
+                setTextColor(TvUi.DIM)
+                setPadding(0, dp(8), 0, 0)
+            })
+            return block
         }
 
         block.addView(TextView(this).apply {
@@ -501,6 +626,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ============ 隐私 ============
+
+    /** 首启三步引导 */
+    private fun showGuideDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("三步开始用")
+            .setMessage(
+                """
+                1. 导入片源
+                   设置 → 订阅，粘贴订阅链接；直播源同理，一个链接同时导入点播 + 直播。
+
+                2. 看直播 / 点播
+                   直播按源里的分组列在左侧，点分组只看该类；点播可按分类浏览与搜索。
+
+                3. 直连播放
+                   不想配源也能用：首页「直连」，填一个 m3u8 / mp4 地址就能播。
+
+                本应用不含任何影视内容，也不收集个人信息；无广告、无账号。
+                """.trimIndent()
+            )
+            .setCancelable(false)
+            .setPositiveButton("开始使用") { _, _ ->
+                configStore.setGuideDone()
+            }
+            .show()
+    }
 
     private fun showPrivacyDialog() {
         AlertDialog.Builder(this)
