@@ -3,9 +3,14 @@ package com.hong.tvbox.ui
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.InputType
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -13,39 +18,50 @@ import com.hong.tvbox.Feedback
 import com.hong.tvbox.core.CmsClient
 import com.hong.tvbox.core.HttpClient
 import com.hong.tvbox.core.Site
+import com.hong.tvbox.core.WebdavSource
 import com.hong.tvbox.data.ConfigStore
 import com.hong.tvbox.data.HistoryStore
 import kotlinx.coroutines.launch
 
 /**
- * 设置页 - 移植自 SettingPage.ets
- * 实现：订阅导入、配置地址导入、站源管理（开关+测速排行）、历史清空
+ * 设置页 —— 布局复刻鸿蒙 SettingPage.ets 的 TV 双栏：
+ * 左侧导航栏（播放源 / 内容更新 / 网盘 / 站源 / 数据 / 关于），
+ * 右侧内容区分组卡片（tvOS 风格的「分组标题 + 行式条目」）。
  */
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var configStore: ConfigStore
     private lateinit var historyStore: HistoryStore
 
-    private lateinit var subscribeInput: EditText
-    private lateinit var subscribeBtn: Button
-    private lateinit var subscribeStatus: TextView
-    private lateinit var configInput: EditText
-    private lateinit var configBtn: Button
-    private lateinit var configStatus: TextView
-    private lateinit var liveInput: EditText
-    private lateinit var liveStatus: TextView
-    private lateinit var crawlBtn: Button
-    private lateinit var crawlSummary: TextView
+    // ===== 视觉常量（对齐鸿蒙 S 类）=====
+    private val CARD_R = 14f
+    private val ROW_H = 52
+    private val PAD_L = 15
+    private val PAD_R = 18
+    private val DIV_INSET = 18
+    private val DIV_COLOR = 0x1FFFFFFF
+    private val GROUP_TXT = 0x8CFFFFFF.toInt()
+    private val ROW_HI = 0x33FFFFFF.toInt()
+    private val BAR_W = 3
+    private val SURFACE = 0xFF1C1B1F.toInt()
+    private val CARD_INPUT = 0xFF2A2930.toInt()
 
-    /** 站源筛选：true=显示全部，false=仅显示可用站源 */
+    // ===== 导航状态 =====
+    private lateinit var contentContainer: LinearLayout
+    private var currentNav = "source"
+    private data class NavRef(val row: View, val bar: View, val txt: TextView)
+    private val navRefs = mutableMapOf<String, NavRef>()
+
+    // ===== 站源 =====
     private var showAllSites = true
+    private lateinit var sitesContainer: LinearLayout
+    private val speedResults = mutableListOf<Pair<Site, Long>>()
+
+    // ===== 订阅直播源折叠 =====
+    private var showPresets = false
 
     private var qrServer: com.hong.tvbox.core.QrServer? = null
     private var qrDialog: androidx.appcompat.app.AlertDialog? = null
-    private lateinit var sitesContainer: LinearLayout
-    private lateinit var speedBtn: Button
-    private lateinit var enableBestBtn: Button
-    private lateinit var enableAllBtn: Button
 
     companion object {
         fun start(context: Context) {
@@ -58,287 +74,784 @@ class SettingsActivity : AppCompatActivity() {
         configStore = ConfigStore(this)
         historyStore = HistoryStore(this)
         buildUI()
-        refreshSitesUI()
     }
+
+    // ==================== 布局骨架 ====================
 
     private fun buildUI() {
-        val scroll = ScrollView(this)
-        scroll.setBackgroundColor(Color.parseColor("#141218"))
-
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setBackgroundColor(TvUi.BG)
         }
 
-        // 顶栏
-        val topBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(24))
-        }
-        val backBtn = TextView(this).apply {
-            text = "‹"
-            textSize = 32f
-            setTextColor(Color.WHITE)
-            setOnClickListener { finish() }
-        }
-        topBar.addView(backBtn, LinearLayout.LayoutParams(dp(40), dp(40)))
-        val titleView = TextView(this).apply {
-            text = "设置"
-            textSize = 22f
-            setTextColor(Color.WHITE)
-        }
-        topBar.addView(titleView)
-        root.addView(topBar)
+        // 顶栏：返回 + 标题 + 站源统计
+        root.addView(buildTitleBar())
 
-        // ===== 订阅 =====
-        root.addView(sectionTitle("订阅（点播 + 直播同时更新）"))
-
-        val subGroup = cardGroup()
-        subscribeInput = EditText(this).apply {
-            hint = "粘贴订阅链接或 TVBox JSON"
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.parseColor("#80FFFFFF"))
-            maxLines = 3
-        }
-        subscribeInput.tvInputStyle()
-        subGroup.addView(subscribeInput)
-
-        val subBtnRow = LinearLayout(this).apply {
+        // 主体：左导航 + 分隔线 + 右内容
+        val body = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
-        subscribeBtn = Button(this).apply {
-            text = "导入订阅"
-            setOnClickListener { importSubscription() }
-        }
-        subBtnRow.addView(subscribeBtn)
-        subBtnRow.addView(Button(this).apply {
-            text = "扫码录入"
-            setOnClickListener { showQrEntry() }
-        })
-        subGroup.addView(subBtnRow)
-        subscribeStatus = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.parseColor("#80FFFFFF"))
-            setPadding(0, dp(8), 0, 0)
-        }
-        // 显示当前订阅 URL
-        val savedUrl = configStore.getSubscribeUrl()
-        if (!savedUrl.isNullOrEmpty()) {
-            subscribeStatus.text = "当前订阅：$savedUrl"
-            subscribeStatus.visibility = View.VISIBLE
-        }
-        subGroup.addView(subscribeStatus)
-        root.addView(subGroup)
 
-        // ===== 配置地址 =====
-        root.addView(sectionTitle("配置地址（仅点播）"))
-
-        val cfgGroup = cardGroup()
-        configInput = EditText(this).apply {
-            hint = "粘贴配置 JSON 或 URL"
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.parseColor("#80FFFFFF"))
-            maxLines = 3
-        }
-        configInput.tvInputStyle()
-        cfgGroup.addView(configInput)
-        configBtn = Button(this).apply {
-            text = "导入配置"
-            setOnClickListener { importConfig() }
-        }
-        cfgGroup.addView(configBtn)
-        configStatus = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.parseColor("#80FFFFFF"))
-            setPadding(0, dp(8), 0, 0)
-        }
-        val savedConfig = configStore.getConfig()
-        if (savedConfig != null) {
-            configStatus.text = "已导入：${savedConfig.sites.size} 个站源，${savedConfig.parses.size} 个解析器"
-            configStatus.visibility = View.VISIBLE
-        }
-        cfgGroup.addView(configStatus)
-        root.addView(cfgGroup)
-
-        // ===== 直播源 =====
-        root.addView(sectionTitle("直播源（m3u / txt）"))
-
-        val liveGroup = cardGroup()
-        liveInput = EditText(this).apply {
-            hint = "粘贴直播源地址，如 https://.../iptv.m3u"
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.parseColor("#80FFFFFF"))
-            maxLines = 3
-            setText(configStore.getLiveSourceUrl() ?: "")
-        }
-        liveInput.tvInputStyle()
-        liveGroup.addView(liveInput)
-
-        val liveBtnRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        liveBtnRow.addView(Button(this).apply {
-            text = "保存并启用"
-            setOnClickListener { saveLiveSource() }
-        })
-        liveBtnRow.addView(Button(this).apply {
-            text = "从订阅恢复"
-            setOnClickListener { applyLivesFromSubscription() }
-        })
-        liveGroup.addView(liveBtnRow)
-
-        liveStatus = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.parseColor("#80FFFFFF"))
-            setPadding(0, dp(8), 0, 0)
-        }
-        liveGroup.addView(liveStatus)
-        root.addView(liveGroup)
-
-        // ===== 站源管理 =====
-        root.addView(sectionTitle("站源管理"))
-
-        val speedRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        speedBtn = Button(this).apply {
-            text = "测速排行"
-            setOnClickListener { startSpeedTest() }
-        }
-        speedRow.addView(speedBtn)
-        enableBestBtn = Button(this).apply {
-            text = "启用最快5个"
-            visibility = View.GONE
-            setOnClickListener { enableBest5() }
-        }
-        speedRow.addView(enableBestBtn)
-        enableAllBtn = Button(this).apply {
-            text = "全部启用"
-            visibility = View.GONE
-            setOnClickListener { enableAll() }
-        }
-        speedRow.addView(enableAllBtn)
-        root.addView(speedRow)
-
-        // 站源筛选：全部 / 仅可用
-        root.addView(switchRow("仅显示可用站源", !showAllSites) { onlyUsable ->
-            showAllSites = !onlyUsable
-            refreshSitesUI()
-        })
-
-        sitesContainer = LinearLayout(this).apply {
+        val nav = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
         }
-        root.addView(sitesContainer)
+        val navDefs = listOf(
+            "source" to "播放源", "update" to "内容更新", "webdav" to "网盘",
+            "sites" to "站源", "data" to "数据", "about" to "关于"
+        )
+        navDefs.forEach { (key, label) -> nav.addView(navItem(label, key)) }
+        body.addView(nav, LinearLayout.LayoutParams(dp(224), ViewGroup.LayoutParams.MATCH_PARENT))
 
-        // ===== 历史记录 =====
-        root.addView(sectionTitle("其他"))
-
-        // 定时抓取：首页每 6 小时自动跑一轮，这里可以手动触发一次
-        crawlBtn = Button(this).apply {
-            text = "立即抓取最新（每 6 小时自动）"
-            setOnClickListener { runCrawlNow() }
-        }
-        root.addView(crawlBtn)
-
-        crawlSummary = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.parseColor("#80FFFFFF"))
-            setPadding(0, dp(6), 0, dp(10))
-        }
-        val summary = configStore.getCrawlSummary()
-        crawlSummary.text = if (summary.isNotEmpty()) "上轮：$summary" else "还没有抓取记录"
-        root.addView(crawlSummary)
-
-        val clearHistBtn = Button(this).apply {
-            text = "清空观看历史"
-            setOnClickListener {
-                historyStore.clear()
-                Toast.makeText(this@SettingsActivity, "已清空观看历史", Toast.LENGTH_SHORT).show()
-            }
-        }
-        root.addView(clearHistBtn)
-
-        // 点击反馈：声音 / 震动（默认都开，切开关后即时生效）
-        root.addView(switchRow("点击声音", configStore.tapSound()) { on ->
-            configStore.setTapSound(on)
-            Feedback.refresh(this)
-        })
-        root.addView(switchRow("点击震动", configStore.tapVibrate()) { on ->
-            configStore.setTapVibrate(on)
-            Feedback.refresh(this)
+        body.addView(View(this).apply {
+            setBackgroundColor(0x14FFFFFF)
+            layoutParams = LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT)
         })
 
-        // 片头 / 片尾跳过
-        root.addView(skipRow("片头跳过", configStore.introSkipSec()) { v -> configStore.setIntroSkipSec(v) })
-        root.addView(skipRow("片尾跳过", configStore.outroSkipSec()) { v -> configStore.setOutroSkipSec(v) })
-
-        // 隐私政策入口
-        root.addView(TextView(this).apply {
-            text = "隐私政策"
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setPadding(0, dp(12), 0, dp(8))
-            setOnClickListener { showPrivacyDialog() }
-        })
-
-        // 上次崩溃日志（有才显示，方便盒子上排障）
-        val crash = com.hong.tvbox.TvBoxApp.readCrash(this)
-        if (crash.isNotEmpty()) {
-            root.addView(Button(this).apply {
-                text = "查看上次崩溃日志"
-                setOnClickListener { showCrashLog(crash) }
-            })
+        contentContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(18), dp(24), dp(24))
         }
+        val scroll = ScrollView(this)
+        scroll.addView(contentContainer)
+        body.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
 
-        // 版本信息页脚
-        val version = try {
-            val info = packageManager.getPackageInfo(packageName, 0)
-            "v${info.versionName}"
-        } catch (e: Exception) {
-            "v1.0.0"
-        }
-        root.addView(TextView(this).apply {
-            text = "夜帧影视 Android TV 版 $version"
-            textSize = 13f
-            setTextColor(Color.parseColor("#66FFFFFF"))
-            gravity = Gravity.CENTER
-            setPadding(0, dp(24), 0, dp(8))
-        })
+        root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
 
-        scroll.addView(root)
-        setContentView(scroll)
+        switchNav("source")
     }
 
-    /** 崩溃日志弹窗：可滚动查看，附清除按钮 */
-    private fun showCrashLog(log: String) {
-        val scroll = ScrollView(this)
-        val tv = TextView(this).apply {
-            text = log
-            textSize = 12f
-            setTextColor(Color.parseColor("#DDDDDD"))
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            typeface = android.graphics.Typeface.MONOSPACE
+    private fun buildTitleBar(): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(24), dp(18), dp(24), dp(4))
         }
-        scroll.addView(tv)
+        val back = TextView(this).apply {
+            text = "‹"
+            textSize = 32f
+            setTextColor(TvUi.SUB)
+            setOnClickListener { finish() }
+        }
+        back.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = ROW_HI, scale = 1f)
+        bar.addView(back, LinearLayout.LayoutParams(dp(40), dp(40)))
 
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("上次崩溃日志")
-            .setView(scroll)
-            .setPositiveButton("关闭") { _, _ -> }
-            .setNegativeButton("清除") { _, _ ->
-                com.hong.tvbox.TvBoxApp.clearCrash(this)
-                Toast.makeText(this, "已清除", Toast.LENGTH_SHORT).show()
+        bar.addView(TextView(this).apply {
+            text = "设置"
+            textSize = 28f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = dp(10)
+        })
+
+        bar.addView(TextView(this).apply {
+            val total = configStore.getConfig()?.sites?.size ?: 0
+            val usable = configStore.getConfig()?.sites?.count { it.usable } ?: 0
+            text = if (total > 0) "站源 $usable / $total" else ""
+            textSize = 14f
+            setTextColor(TvUi.DIM)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            gravity = Gravity.END
+        })
+        return bar
+    }
+
+    // ==================== 左侧导航 ====================
+
+    private fun navItem(label: String, key: String): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), 0, dp(14), 0)
+            minimumHeight = dp(52)
+            isFocusable = true
+            isClickable = true
+        }
+        val bar = View(this).apply {
+            background = roundedBar(Color.TRANSPARENT)
+        }
+        row.addView(bar, LinearLayout.LayoutParams(dp(BAR_W), dp(22)))
+
+        val txt = TextView(this).apply {
+            text = label
+            textSize = 17f
+            setTextColor(TvUi.SUB)
+        }
+        row.addView(txt, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = dp(14)
+        })
+
+        navRefs[key] = NavRef(row, bar, txt)
+
+        fun paint() {
+            val sel = currentNav == key
+            row.setBackgroundColor(if (sel) ROW_HI else Color.TRANSPARENT)
+            bar.background = roundedBar(if (sel) Color.WHITE else Color.TRANSPARENT)
+            txt.setTextColor(if (sel) Color.WHITE else TvUi.SUB)
+            txt.typeface = if (sel) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        }
+        paint()
+
+        row.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) switchNav(key) }
+        row.setOnClickListener { switchNav(key) }
+        return row
+    }
+
+    private fun switchNav(key: String) {
+        currentNav = key
+        navRefs.forEach { (k, ref) ->
+            val sel = k == key
+            ref.row.setBackgroundColor(if (sel) ROW_HI else Color.TRANSPARENT)
+            ref.bar.background = roundedBar(if (sel) Color.WHITE else Color.TRANSPARENT)
+            ref.txt.setTextColor(if (sel) Color.WHITE else TvUi.SUB)
+            ref.txt.typeface = if (sel) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        }
+        contentContainer.removeAllViews()
+        when (key) {
+            "source" -> contentContainer.addView(sectionSource())
+            "update" -> contentContainer.addView(sectionUpdate())
+            "webdav" -> contentContainer.addView(sectionWebdav())
+            "sites" -> contentContainer.addView(sectionSites())
+            "data" -> contentContainer.addView(sectionData())
+            "about" -> contentContainer.addView(sectionAbout())
+        }
+    }
+
+    // ==================== 分组：播放源 ====================
+
+    private fun sectionSource(): View {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(groupLabel("播放源"))
+        val card = cardGroup()
+        val subUrl = configStore.getSubscribeUrl() ?: ""
+        card.addView(sRow("订阅", if (subUrl.isNotEmpty()) "已订阅" else "未订阅", arrow = true) {
+            showInputDialog("订阅", "粘贴订阅链接或 TVBox JSON（点播 + 直播一起更新）", subUrl) { importSubscription(it) }
+        })
+        card.addView(sDiv())
+        card.addView(sRow("点播配置", cfgState(), arrow = true) {
+            showInputDialog("点播配置", "粘贴配置 JSON 或 URL", configStore.getConfigJson() ?: "") { importConfig(it) }
+        })
+        card.addView(sDiv())
+        card.addView(sRow("直播源", currentLiveName(), arrow = true) {
+            showInputDialog("直播源", "粘贴 m3u / txt 直播源地址", configStore.getLiveSourceUrl() ?: "") { saveLiveSource(it) }
+        })
+        card.addView(sDiv())
+        card.addView(sRow("扫码录入", "手机扫码填地址", arrow = true) { showQrEntry() })
+
+        // 订阅直播源候选列表（可展开）
+        val presets = configStore.getSubLives()
+        card.addView(sDiv())
+        card.addView(sRow(
+            "订阅直播源",
+            if (presets.isNotEmpty()) "${presets.size} 个 · ${if (showPresets) "收起" else "展开"}" else "未订阅",
+            arrow = true
+        ) { showPresets = !showPresets; switchNav("source") })
+        if (showPresets && presets.isNotEmpty()) {
+            card.addView(sDiv())
+            presets.forEach { p ->
+                val hot = configStore.getLiveSourceUrl() == p.url
+                card.addView(sChild(p.name, p.url, if (hot) "✓ 使用中" else "使用", hot) {
+                    configStore.saveLiveSourceUrl(p.url)
+                    switchNav("source")
+                })
             }
+        }
+        col.addView(card)
+        return col
+    }
+
+    private fun cfgState(): String {
+        val sites = configStore.getConfig()?.sites ?: emptyList()
+        return if (sites.isNotEmpty()) "已导入" else "未配置"
+    }
+
+    private fun currentLiveName(): String {
+        val cur = configStore.getLiveSourceUrl() ?: return "未选择"
+        val sub = configStore.getSubLives().firstOrNull { it.url == cur }
+        return if (sub != null) sub.name else if (cur.isNotEmpty()) "自定义地址" else "未选择"
+    }
+
+    // ==================== 分组：内容更新 ====================
+
+    private fun sectionUpdate(): View {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(groupLabel("内容更新"))
+        val card = cardGroup()
+        card.addView(sRow("上次更新", crawlShort()))
+        card.addView(sDiv())
+        card.addView(sRow("立即更新", "逐站抓取最新影片", arrow = true) { runCrawlNow() })
+        col.addView(card)
+        return col
+    }
+
+    private fun crawlShort(): String {
+        val s = configStore.getCrawlSummary()
+        if (s.isEmpty()) return "还没有抓取过"
+        return s.replace(" 更新完成", "").replace("个站源有响应", "站源")
+            .replace("收到 ", "").replace("个无响应", "失效")
+    }
+
+    // ==================== 分组：网盘 ====================
+
+    private fun sectionWebdav(): View {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(groupLabel("网盘"))
+        val card = cardGroup()
+        val sources = configStore.getWebdavSources()
+        card.addView(sRow("添加挂载", "${sources.size} 个已挂载", arrow = true) { showWdEdit(null) })
+        if (sources.isEmpty()) {
+            card.addView(sDiv())
+            card.addView(subText("挂载 WebDAV 网盘（极空间 / 群晖 / AList 等）后，可在首页「网盘」里浏览并播放。"))
+        } else {
+            sources.forEach { src ->
+                card.addView(sDiv())
+                card.addView(sRow(src.name.ifEmpty { "未命名" }, src.url, arrow = true) { showWdEdit(src) })
+            }
+        }
+        card.addView(sDiv())
+        card.addView(sRow("打开网盘", "浏览已挂载的目录", arrow = true) { WebdavActivity.start(this) })
+        col.addView(card)
+        return col
+    }
+
+    // ==================== 分组：站源 ====================
+
+    private fun sectionSites(): View {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(groupLabel("站源"))
+        val card = cardGroup()
+        val sites = configStore.getConfig()?.sites ?: emptyList()
+        card.addView(sRow("站源列表", "${sites.size} 个 · 已启用 ${enabledCount()}", arrow = true) {
+            showAllSites = !showAllSites
+            // 刷新站源列表区
+            refreshSitesUI()
+        })
+        card.addView(sDiv())
+        card.addView(sRow("测速排行", "按响应速度排序", arrow = true) { startSpeedTest() })
+        card.addView(sDiv())
+        card.addView(sRow("启用最快的 5 个", "", arrow = true) { enableBest5() })
+        card.addView(sDiv())
+        card.addView(sRow("全部启用", "", arrow = true) { enableAll() })
+        card.addView(sDiv())
+        card.addView(sRow("站源筛选", if (showAllSites) "全部" else "仅可用", arrow = true) {
+            showAllSites = !showAllSites
+            switchNav("sites")
+        })
+
+        // 站源明细列表
+        card.addView(sDiv())
+        sitesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        card.addView(sitesContainer)
+        refreshSitesUI()
+        col.addView(card)
+        return col
+    }
+
+    private fun enabledCount(): Int {
+        val enabled = configStore.getEnabledSites()
+        val customized = configStore.isEnabledCustomized()
+        val all = configStore.getConfig()?.sites ?: return 0
+        return if (!customized) all.count { it.usable }
+        else all.count { it.usable && enabled.contains(it.key) }
+    }
+
+    private fun refreshSitesUI() {
+        if (!this::sitesContainer.isInitialized) return
+        sitesContainer.removeAllViews()
+        val all = configStore.getConfig()?.sites ?: return
+        val sites = if (showAllSites) all else all.filter { it.usable }
+        if (sites.isEmpty()) {
+            sitesContainer.addView(subText("还没有导入配置。点上方的「点播配置」录入。"))
+            return
+        }
+        val enabledKeys = configStore.getEnabledSites().toMutableSet()
+        val customized = configStore.isEnabledCustomized()
+        sites.forEach { site ->
+            sitesContainer.addView(siteRow(site, !customized || enabledKeys.contains(site.key)) { on ->
+                if (on) enabledKeys.add(site.key) else enabledKeys.remove(site.key)
+                configStore.saveEnabledSites(enabledKeys)
+            })
+        }
+    }
+
+    private fun siteRow(site: Site, checked: Boolean, onToggle: (Boolean) -> Unit): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(30), dp(8), dp(PAD_R), dp(8))
+            minimumHeight = dp(58)
+        }
+        row.addView(View(this).apply {
+            background = roundedBar(Color.TRANSPARENT)
+        }, LinearLayout.LayoutParams(dp(BAR_W), dp(18)))
+
+        val nameCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        nameCol.addView(TextView(this).apply {
+            text = site.name
+            textSize = 15f
+            setTextColor(if (site.usable) Color.WHITE else TvUi.DIM)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        nameCol.addView(TextView(this).apply {
+            text = if (site.usable) (if (site.type == 0) "XML 采集接口" else "JSON 采集接口") else site.reason
+            textSize = 12f
+            setTextColor(if (site.usable) TvUi.DIM else TvUi.WARN)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, dp(3), 0, 0)
+        })
+        row.addView(nameCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = dp(12)
+        })
+
+        if (site.usable) {
+            row.addView(Switch(this).apply {
+                isChecked = checked
+                setOnCheckedChangeListener { _, isOn -> onToggle(isOn) }
+            })
+        } else {
+            row.addView(TextView(this).apply {
+                text = "不支持"
+                textSize = 12f
+                setTextColor(TvUi.WARN)
+                setPadding(dp(8), dp(3), dp(8), dp(3))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(4).toFloat()
+                    setStroke(dp(1), TvUi.WARN)
+                }
+            })
+        }
+        return row
+    }
+
+    // ==================== 分组：数据 ====================
+
+    private fun sectionData(): View {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(groupLabel("数据"))
+        val card = cardGroup()
+        card.addView(sRow("清除播放记录", "", warn = true) {
+            historyStore.clear()
+            Toast.makeText(this, "已清除播放记录", Toast.LENGTH_SHORT).show()
+        })
+        col.addView(card)
+        return col
+    }
+
+    // ==================== 分组：关于 ====================
+
+    private fun sectionAbout(): View {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(groupLabel("关于"))
+        val card = cardGroup()
+        card.addView(sRow("点击声音", if (configStore.tapSound()) "开" else "关") {
+            val next = !configStore.tapSound()
+            configStore.setTapSound(next)
+            Feedback.refresh(this)
+            switchNav("about")
+        })
+        card.addView(sDiv())
+        card.addView(sRow("点击震动", if (configStore.tapVibrate()) "开" else "关") {
+            val next = !configStore.tapVibrate()
+            configStore.setTapVibrate(next)
+            Feedback.refresh(this)
+            switchNav("about")
+        })
+        card.addView(sDiv())
+        card.addView(sRow("片头跳过", skipLabel(configStore.introSkipSec())) { pickSkip("片头跳过") { configStore.setIntroSkipSec(it); switchNav("about") } })
+        card.addView(sDiv())
+        card.addView(sRow("片尾跳过", skipLabel(configStore.outroSkipSec())) { pickSkip("片尾跳过") { configStore.setOutroSkipSec(it); switchNav("about") } })
+        card.addView(sDiv())
+        card.addView(sRow("版本", "v${versionName()}"))
+        card.addView(sDiv())
+        card.addView(sRow("隐私政策", "查看", arrow = true) { showPrivacyDialog() })
+
+        val crash = com.hong.tvbox.TvBoxApp.readCrash(this)
+        if (crash.isNotEmpty()) {
+            card.addView(sDiv())
+            card.addView(sRow("上次崩溃日志", "查看", arrow = true) { showCrashLog(crash) })
+        }
+        col.addView(card)
+        return col
+    }
+
+    private fun versionName(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0"
+    } catch (e: Exception) {
+        "1.0.0"
+    }
+
+    private val skipOptions = listOf(0, 15, 30, 60, 90)
+    private fun skipLabel(sec: Int): String = if (sec <= 0) "关" else "$sec 秒"
+    private fun pickSkip(title: String, onPick: (Int) -> Unit) {
+        val labels = skipOptions.map { skipLabel(it) }.toTypedArray()
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setItems(labels) { _, which -> onPick(skipOptions[which]) }
             .show()
     }
 
-    /** 手机扫码录入：起一个局域网小服务 + 显示二维码，离开对话框即停止服务 */
+    // ==================== 行式条目 ====================
+
+    /** 焦点竖条 */
+    private fun roundedBar(color: Int): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(BAR_W).toFloat() / 2
+        setColor(color)
+    }
+
+    /** tvOS 风格行：竖条 + 标题 + 当前值 + 箭头 */
+    private fun sRow(
+        label: String,
+        value: String = "",
+        arrow: Boolean = false,
+        warn: Boolean = false,
+        onClick: (() -> Unit)? = null
+    ): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(PAD_L), 0, dp(PAD_R), 0)
+            minimumHeight = dp(ROW_H)
+            isFocusable = true
+            isClickable = true
+        }
+        val bar = View(this).apply { background = roundedBar(Color.TRANSPARENT) }
+        row.addView(bar, LinearLayout.LayoutParams(dp(BAR_W), dp(20)))
+
+        val title = TextView(this).apply {
+            text = label
+            textSize = 16f
+            setTextColor(if (warn) TvUi.WARN else Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        row.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = dp(12)
+        })
+
+        var valueView: TextView? = null
+        if (value.isNotEmpty()) {
+            valueView = TextView(this).apply {
+                text = value
+                textSize = 14f
+                setTextColor(if (warn) TvUi.DIM else TvUi.SUB)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                maxWidth = dp(400)
+            }
+            row.addView(valueView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dp(12)
+            })
+        }
+
+        var arrowView: TextView? = null
+        if (arrow) {
+            arrowView = TextView(this).apply {
+                text = "›"
+                textSize = 20f
+                setTextColor(TvUi.DIM)
+            }
+            row.addView(arrowView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dp(8)
+            })
+        }
+
+        fun paint(focused: Boolean) {
+            row.setBackgroundColor(if (focused) ROW_HI else Color.TRANSPARENT)
+            bar.background = roundedBar(if (focused) (if (warn) TvUi.WARN else Color.WHITE) else Color.TRANSPARENT)
+            valueView?.setTextColor(if (focused) Color.WHITE else (if (warn) TvUi.DIM else TvUi.SUB))
+            arrowView?.setTextColor(if (focused) Color.WHITE else TvUi.DIM)
+        }
+        row.setOnFocusChangeListener { _, hasFocus -> paint(hasFocus) }
+        row.setOnHoverListener { _, event ->
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_HOVER_ENTER -> if (!row.hasFocus()) paint(true)
+                android.view.MotionEvent.ACTION_HOVER_EXIT -> if (!row.hasFocus()) paint(false)
+            }
+            false
+        }
+        row.setOnClickListener { onClick?.invoke() }
+        return row
+    }
+
+    /** 展开的子列表项：缩进 + 小一号 */
+    private fun sChild(label: String, meta: String, value: String, hot: Boolean, onClick: () -> Unit): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(30), 0, dp(PAD_R), 0)
+            minimumHeight = dp(42)
+            isFocusable = true
+            isClickable = true
+        }
+        row.addView(TextView(this).apply {
+            text = label
+            textSize = 15f
+            setTextColor(if (hot) TvUi.SELECTED else Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(dp(160), ViewGroup.LayoutParams.WRAP_CONTENT))
+        row.addView(TextView(this).apply {
+            text = meta
+            textSize = 13f
+            setTextColor(TvUi.DIM)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(12) })
+        row.addView(TextView(this).apply {
+            text = value
+            textSize = 13f
+            setTextColor(if (hot) TvUi.SELECTED else TvUi.SUB)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
+        row.setOnFocusChangeListener { _, hasFocus -> row.setBackgroundColor(if (hasFocus) ROW_HI else Color.TRANSPARENT) }
+        row.setOnClickListener { onClick() }
+        return row
+    }
+
+    // ==================== 分组标题 / 卡片 / 分割线 ====================
+
+    private fun groupLabel(t: String): TextView = TextView(this).apply {
+        text = t
+        textSize = 12.5f
+        typeface = Typeface.DEFAULT_BOLD
+        setTextColor(GROUP_TXT)
+        letterSpacing = 0.08f
+        setPadding(dp(18), 0, 0, dp(7))
+    }
+
+    private fun cardGroup(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundColor(SURFACE)
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(CARD_R.toInt()).toFloat()
+            setColor(SURFACE)
+        }
+    }
+
+    private fun sDiv(): View = View(this).apply {
+        setBackgroundColor(DIV_COLOR)
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
+        ).also { it.marginStart = dp(DIV_INSET); it.marginEnd = dp(DIV_INSET) }
+    }
+
+    private fun subText(t: String): TextView = TextView(this).apply {
+        text = t
+        textSize = 13f
+        setTextColor(TvUi.DIM)
+        setLineSpacing(dp(3).toFloat(), 1f)
+        setPadding(dp(30), dp(14), dp(PAD_R), dp(18))
+    }
+
+    // ==================== 输入弹窗 ====================
+
+    private fun showInputDialog(title: String, hint: String, initial: String, onSubmit: (String) -> Unit) {
+        val edit = EditText(this).apply {
+            setText(initial)
+            hint = hint
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setHintTextColor(TvUi.DIM)
+            maxLines = 3
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(10).toFloat()
+                setColor(CARD_INPUT)
+                setStroke(dp(1), 0x40FFFFFF)
+            }
+        }
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(16), dp(24), dp(4))
+        }
+        wrap.addView(edit)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(wrap)
+            .setPositiveButton("确定") { _, _ -> onSubmit(edit.text.toString()) }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    // ==================== 功能逻辑 ====================
+
+    private fun importSubscription(input: String) {
+        val v = input.trim()
+        if (v.isEmpty()) {
+            Toast.makeText(this, "请输入订阅链接或 JSON", Toast.LENGTH_SHORT).show(); return
+        }
+        lifecycleScope.launch {
+            try {
+                val text = if (v.startsWith("http://") || v.startsWith("https://")) {
+                    configStore.saveSubscribeUrl(v)
+                    HttpClient.text(v, timeoutMs = 20000)
+                } else v
+                val siteCount = configStore.loadConfig(text)
+                configStore.resetEnabledSites()
+                CmsClient.clearCache()
+                absorbLives()
+                Toast.makeText(this@SettingsActivity, "订阅导入成功，共 $siteCount 个站源", Toast.LENGTH_SHORT).show()
+                switchNav("source")
+            } catch (e: Exception) {
+                Toast.makeText(this@SettingsActivity, "导入失败：${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun importConfig(input: String) {
+        val v = input.trim()
+        if (v.isEmpty()) {
+            Toast.makeText(this, "请输入配置地址或 JSON", Toast.LENGTH_SHORT).show(); return
+        }
+        lifecycleScope.launch {
+            try {
+                val text = if (v.startsWith("http://") || v.startsWith("https://")) {
+                    HttpClient.text(v, timeoutMs = 20000)
+                } else v
+                val siteCount = configStore.loadConfig(text)
+                configStore.resetEnabledSites()
+                CmsClient.clearCache()
+                absorbLives()
+                Toast.makeText(this@SettingsActivity, "配置导入成功，共 $siteCount 个站源", Toast.LENGTH_SHORT).show()
+                switchNav("source")
+            } catch (e: Exception) {
+                Toast.makeText(this@SettingsActivity, "导入失败：${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun saveLiveSource(input: String) {
+        val url = input.trim()
+        if (url.isEmpty()) {
+            Toast.makeText(this, "请输入直播源地址", Toast.LENGTH_SHORT).show(); return
+        }
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            Toast.makeText(this, "直播源必须是 http/https 地址", Toast.LENGTH_SHORT).show(); return
+        }
+        configStore.saveLiveSourceUrl(url)
+        Toast.makeText(this, "直播源已保存", Toast.LENGTH_SHORT).show()
+        switchNav("source")
+    }
+
+    private fun absorbLives() {
+        val lives = configStore.getConfig()?.lives ?: return
+        val valid = lives.filter { it.url.startsWith("http://") || it.url.startsWith("https://") }
+        if (valid.isEmpty()) return
+        configStore.saveSubLives(valid)
+        val cur = configStore.getLiveSourceUrl()
+        if (cur.isNullOrEmpty() || valid.none { it.url == cur }) {
+            configStore.saveLiveSourceUrl(valid.first().url)
+        }
+    }
+
+    private fun startSpeedTest() {
+        val sites = configStore.getEnabledSiteList()
+        if (sites.isEmpty()) {
+            Toast.makeText(this, "没有可用站源", Toast.LENGTH_SHORT).show(); return
+        }
+        speedResults.clear()
+        Toast.makeText(this, "开始测速 ${sites.size} 个站源…", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            sites.forEach { site ->
+                val t0 = System.currentTimeMillis()
+                val ok = try {
+                    HttpClient.text(
+                        site.api + (if (site.api.contains('?')) "&" else "?") + "ac=list",
+                        timeoutMs = 5000
+                    )
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+                speedResults.add(Pair(site, if (ok) System.currentTimeMillis() - t0 else Long.MAX_VALUE))
+            }
+            speedResults.sortBy { it.second }
+            refreshSpeedResultsUI()
+        }
+    }
+
+    private fun refreshSpeedResultsUI() {
+        if (!this::sitesContainer.isInitialized) return
+        sitesContainer.removeAllViews()
+        speedResults.forEachIndexed { index, (site, ms) ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(30), dp(8), dp(PAD_R), dp(8))
+            }
+            row.addView(TextView(this).apply {
+                text = "${index + 1}."
+                textSize = 15f
+                setTextColor(Color.WHITE)
+            }, LinearLayout.LayoutParams(dp(32), ViewGroup.LayoutParams.WRAP_CONTENT))
+            row.addView(TextView(this).apply {
+                text = site.name
+                textSize = 15f
+                setTextColor(Color.WHITE)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(TextView(this).apply {
+                text = if (ms == Long.MAX_VALUE) "不通" else "$ms ms"
+                textSize = 14f
+                setTextColor(when {
+                    ms == Long.MAX_VALUE -> TvUi.WARN
+                    ms < 1000 -> Color.parseColor("#00FF88")
+                    ms < 3000 -> TvUi.SELECTED
+                    else -> TvUi.WARN
+                })
+            })
+            sitesContainer.addView(row)
+        }
+    }
+
+    private fun enableBest5() {
+        val best5 = speedResults.take(5).filter { it.second != Long.MAX_VALUE }.map { it.first.key }.toSet()
+        if (best5.isEmpty()) {
+            Toast.makeText(this, "还没有测速结果，先点「测速排行」", Toast.LENGTH_SHORT).show(); return
+        }
+        configStore.saveEnabledSites(best5)
+        switchNav("sites")
+        Toast.makeText(this, "已启用最快 ${best5.size} 个站源", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun enableAll() {
+        configStore.resetEnabledSites()
+        switchNav("sites")
+        Toast.makeText(this, "已恢复全部启用", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun runCrawlNow() {
+        val sites = configStore.getEnabledSiteList()
+        if (sites.isEmpty()) {
+            Toast.makeText(this, "没有可用站源", Toast.LENGTH_SHORT).show(); return
+        }
+        Toast.makeText(this, "开始抓取 ${sites.size} 个站源…", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            try {
+                val r = com.hong.tvbox.core.Crawler.run(sites)
+                configStore.saveFeed(r.list)
+                configStore.setLastCrawlAt(r.at)
+                val summary = "抓取 ${r.sites} 个站源，获得 ${r.items} 条" +
+                        if (r.dead.isEmpty()) "" else "，${r.dead.size} 个站源不可用"
+                configStore.saveCrawlSummary(summary)
+                Toast.makeText(this@SettingsActivity, summary, Toast.LENGTH_SHORT).show()
+                switchNav("update")
+            } catch (e: Exception) {
+                Toast.makeText(this@SettingsActivity, "抓取失败：${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // ==================== 扫码录入 ====================
+
     private fun showQrEntry() {
         val server = qrServer ?: com.hong.tvbox.core.QrServer(8788) { form ->
             runOnUiThread { applyQrForm(form) }
@@ -357,15 +870,11 @@ class SettingsActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(20), dp(16), dp(20), dp(8))
         }
-
         val img = ImageView(this).apply {
             setImageBitmap(qr)
-            if (qr == null) {
-                setBackgroundColor(Color.WHITE)
-            }
+            if (qr == null) setBackgroundColor(Color.WHITE)
         }
         box.addView(img, LinearLayout.LayoutParams(dp(260), dp(260)))
-
         box.addView(TextView(this).apply {
             text = url
             textSize = 15f
@@ -373,11 +882,10 @@ class SettingsActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, dp(4))
         })
-
         box.addView(TextView(this).apply {
             text = "手机与电视连同一 Wi-Fi，扫码后填写订阅/直播源/配置，提交即生效。\n关闭本窗口后服务立即停止。"
             textSize = 13f
-            setTextColor(Color.parseColor("#B3FFFFFF"))
+            setTextColor(TvUi.SUB)
             gravity = Gravity.CENTER
             setLineSpacing(dp(3).toFloat(), 1f)
         })
@@ -390,430 +898,87 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    /** 手机提交的表单：分别落到订阅 / 直播源 / 点播配置 */
     private fun applyQrForm(form: Map<String, String>) {
         val subscribe = form["subscribe"].orEmpty()
         val live = form["live"].orEmpty()
         val config = form["config"].orEmpty()
-
-        if (subscribe.isNotEmpty()) {
-            subscribeInput.setText(subscribe)
-            importSubscription()
-        }
-        if (live.isNotEmpty()) {
-            liveInput.setText(live)
-            saveLiveSource()
-        }
-        if (config.isNotEmpty()) {
-            configInput.setText(config)
-            importConfig()
-        }
+        if (subscribe.isNotEmpty()) importSubscription(subscribe)
+        if (live.isNotEmpty()) saveLiveSource(live)
+        if (config.isNotEmpty()) importConfig(config)
         if (subscribe.isEmpty() && live.isEmpty() && config.isEmpty()) {
             Toast.makeText(this, "手机端没有填写内容", Toast.LENGTH_SHORT).show()
         }
     }
 
-    /** 手动跑一轮定时抓取（首页每 6 小时也会自动跑） */
-    private fun runCrawlNow() {
-        val sites = configStore.getEnabledSiteList()
-        if (sites.isEmpty()) {
-            Toast.makeText(this, "没有可用站源", Toast.LENGTH_SHORT).show()
-            return
+    // ==================== 网盘源编辑 ====================
+
+    private fun showWdEdit(src: WebdavSource?) {
+        val isNew = src == null
+        val name = EditText(this).apply { setText(src?.name ?: ""); hint = "名称（可留空，默认取域名）" }
+        val url = EditText(this).apply { setText(src?.url ?: ""); hint = "服务器地址，如 https://dav.example.com/dav" }
+        val user = EditText(this).apply { setText(src?.user ?: ""); hint = "用户名（匿名可留空）" }
+        val pass = EditText(this).apply {
+            setText(src?.pass ?: "")
+            hint = "密码"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val root = EditText(this).apply { setText(src?.root ?: ""); hint = "挂载根路径，如 /影视（可留空 = 根目录）" }
+
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(16), dp(24), dp(4))
+        }
+        listOf(name, url, user, pass, root).forEach { e ->
+            e.textSize = 15f
+            e.setTextColor(Color.WHITE)
+            e.setHintTextColor(TvUi.DIM)
+            e.setSingleLine(true)
+            e.setPadding(dp(14), dp(10), dp(14), dp(10))
+            e.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(10).toFloat()
+                setColor(CARD_INPUT)
+                setStroke(dp(1), 0x40FFFFFF)
+            }
+            wrap.addView(e, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) })
         }
 
-        crawlBtn.isEnabled = false
-        crawlBtn.text = "抓取中…"
-        crawlSummary.text = "正在抓取 ${sites.size} 个站源，约 10~30 秒"
-
-        lifecycleScope.launch {
-            try {
-                val r = com.hong.tvbox.core.Crawler.run(sites)
-                configStore.saveFeed(r.list)
-                configStore.setLastCrawlAt(r.at)
-                val summary = "抓取 ${r.sites} 个站源，获得 ${r.items} 条" +
-                        if (r.dead.isEmpty()) "" else "，${r.dead.size} 个站源不可用"
-                configStore.saveCrawlSummary(summary)
-                crawlSummary.text = "上轮：$summary"
-                Toast.makeText(this@SettingsActivity, summary, Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                crawlSummary.text = "抓取失败：${e.message}"
-                Toast.makeText(this@SettingsActivity, "抓取失败：${e.message}", Toast.LENGTH_SHORT).show()
-            } finally {
-                crawlBtn.isEnabled = true
-                crawlBtn.text = "立即抓取最新（每 6 小时自动）"
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(if (isNew) "添加挂载" else "编辑挂载")
+            .setView(wrap)
+            .setNegativeButton("取消", null)
+        if (!isNew) {
+            builder.setNeutralButton("删除") { _, _ ->
+                configStore.removeWebdavSource(src.id)
+                switchNav("webdav")
+                Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show()
             }
         }
-    }
-
-    private fun importSubscription() {
-        val input = subscribeInput.text.toString().trim()
-        if (input.isEmpty()) {
-            Toast.makeText(this, "请输入订阅链接或 JSON", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        subscribeBtn.isEnabled = false
-        subscribeStatus.text = "导入中…"
-        subscribeStatus.visibility = View.VISIBLE
-
-        lifecycleScope.launch {
-            try {
-                val text = if (input.startsWith("http://") || input.startsWith("https://")) {
-                    configStore.saveSubscribeUrl(input)
-                    HttpClient.text(input, timeoutMs = 20000)
-                } else {
-                    input
-                }
-
-                val siteCount = configStore.loadConfig(text)
-                // 换了配置，旧站源 key 已经不适用，开关重置为「全部启用」
-                configStore.resetEnabledSites()
-                CmsClient.clearCache()
-                absorbLives()
-
-                subscribeStatus.text = "导入成功：$siteCount 个站源"
-                Toast.makeText(this@SettingsActivity, "订阅导入成功，共 $siteCount 个站源", Toast.LENGTH_SHORT).show()
-                refreshSitesUI()
-
-            } catch (e: Exception) {
-                subscribeStatus.text = "导入失败：${e.message}"
-                Toast.makeText(this@SettingsActivity, "导入失败：${e.message}", Toast.LENGTH_SHORT).show()
-            } finally {
-                subscribeBtn.isEnabled = true
+        builder.setPositiveButton("保存") { _, _ ->
+            val u = url.text.toString().trim()
+            if (u.isEmpty() || !(u.startsWith("http://") || u.startsWith("https://"))) {
+                Toast.makeText(this, "请填正确的服务器地址", Toast.LENGTH_SHORT).show()
+                return@setPositiveButton
             }
-        }
-    }
-
-    /**
-     * 把配置/订阅里的 lives 收进本地，并自动选中第一个。
-     * 订阅 = 一份 JSON 同时带点播站源与直播源，填一个链接两样都更新。
-     */
-    private fun absorbLives() {
-        val lives = configStore.getConfig()?.lives ?: return
-        val valid = lives.filter {
-            it.url.startsWith("http://") || it.url.startsWith("https://")
-        }
-        if (valid.isEmpty()) return
-
-        configStore.saveSubLives(valid)
-
-        val cur = configStore.getLiveSourceUrl()
-        if (cur.isNullOrEmpty() || valid.none { it.url == cur }) {
-            configStore.saveLiveSourceUrl(valid.first().url)
-        }
-        if (this::liveInput.isInitialized) {
-            liveInput.setText(configStore.getLiveSourceUrl() ?: "")
-        }
-        if (this::liveStatus.isInitialized) {
-            liveStatus.visibility = View.VISIBLE
-            liveStatus.text = "已收录 ${valid.size} 个直播源：${valid.joinToString("、") { it.name }}"
-        }
-    }
-
-    private fun saveLiveSource() {
-        val url = liveInput.text.toString().trim()
-        if (url.isEmpty()) {
-            Toast.makeText(this, "请输入直播源地址", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            Toast.makeText(this, "直播源必须是 http/https 地址", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        configStore.saveLiveSourceUrl(url)
-        liveStatus.visibility = View.VISIBLE
-        liveStatus.text = "已启用：$url"
-        Toast.makeText(this, "直播源已保存", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun applyLivesFromSubscription() {
-        val lives = configStore.getSubLives()
-        if (lives.isEmpty()) {
-            liveStatus.visibility = View.VISIBLE
-            liveStatus.text = "订阅里没有直播源（导入带 lives 的订阅后会自动收录）"
-            return
-        }
-
-        val cur = configStore.getLiveSourceUrl()
-        if (cur.isNullOrEmpty() || lives.none { it.url == cur }) {
-            configStore.saveLiveSourceUrl(lives.first().url)
-        }
-        liveInput.setText(configStore.getLiveSourceUrl() ?: "")
-        liveStatus.visibility = View.VISIBLE
-        liveStatus.text = "共 ${lives.size} 个候选：${lives.joinToString("、") { it.name }}"
-    }
-
-    private fun importConfig() {
-        val input = configInput.text.toString().trim()
-        if (input.isEmpty()) {
-            Toast.makeText(this, "请输入配置地址或 JSON", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        configBtn.isEnabled = false
-        configStatus.text = "导入中…"
-        configStatus.visibility = View.VISIBLE
-
-        lifecycleScope.launch {
-            try {
-                val text = if (input.startsWith("http://") || input.startsWith("https://")) {
-                    HttpClient.text(input, timeoutMs = 20000)
-                } else {
-                    input
-                }
-
-                val siteCount = configStore.loadConfig(text)
-                configStore.resetEnabledSites()
-                CmsClient.clearCache()
-                absorbLives()
-
-                configStatus.text = "导入成功：$siteCount 个站源"
-                Toast.makeText(this@SettingsActivity, "配置导入成功，共 $siteCount 个站源", Toast.LENGTH_SHORT).show()
-                refreshSitesUI()
-
-            } catch (e: Exception) {
-                configStatus.text = "导入失败：${e.message}"
-                Toast.makeText(this@SettingsActivity, "导入失败：${e.message}", Toast.LENGTH_SHORT).show()
-            } finally {
-                configBtn.isEnabled = true
-            }
-        }
-    }
-
-    private fun refreshSitesUI() {
-        sitesContainer.removeAllViews()
-        val all = configStore.getConfig()?.sites ?: return
-        val sites = if (showAllSites) all else all.filter { it.usable }
-
-        if (sites.isEmpty()) {
-            val emptyView = TextView(this).apply {
-                text = "还没有站源，请先导入配置或订阅"
-                textSize = 16f
-                setTextColor(Color.parseColor("#80FFFFFF"))
-                setPadding(0, dp(12), 0, 0)
-            }
-            sitesContainer.addView(emptyView)
-            return
-        }
-
-        val enabledKeys = configStore.getEnabledSites().toMutableSet()
-        val customized = configStore.isEnabledCustomized()
-
-        sites.forEach { site ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(8), 0, dp(8))
-            }
-
-            val nameView = TextView(this).apply {
-                text = site.name
-                textSize = 16f
-                setTextColor(
-                    when {
-                        site.type == 3 -> Color.parseColor("#80FFFFFF")
-                        else -> Color.WHITE
-                    }
+            configStore.saveWebdavSource(
+                WebdavSource(
+                    id = src?.id ?: "",
+                    name = name.text.toString().trim().ifEmpty { u.substringAfter("://").substringBefore("/") },
+                    url = u,
+                    user = user.text.toString().trim(),
+                    pass = pass.text.toString(),
+                    root = root.text.toString().trim()
                 )
-            }
-            row.addView(nameView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-            val typeView = TextView(this).apply {
-                text = when (site.type) {
-                    0 -> "XML"
-                    1 -> "JSON"
-                    3 -> "爬虫"
-                    4 -> "JSON4"
-                    else -> "未知"
-                }
-                textSize = 13f
-                setTextColor(Color.parseColor("#80FFFFFF"))
-            }
-            row.addView(typeView)
-
-            if (site.type != 3) {
-                val toggle = Switch(this).apply {
-                    // 没自定义过 = 全部启用；自定义过 = 严格看集合
-                    isChecked = !customized || enabledKeys.contains(site.key)
-                    setOnCheckedChangeListener { _, checked ->
-                        if (checked) {
-                            enabledKeys.add(site.key)
-                        } else {
-                            enabledKeys.remove(site.key)
-                        }
-                        configStore.saveEnabledSites(enabledKeys)
-                    }
-                }
-                row.addView(toggle)
-            }
-
-            sitesContainer.addView(row)
-            sitesContainer.addView(divider())
-        }
+            )
+            switchNav("webdav")
+            Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show()
+        }.show()
     }
 
-    // 测速排行
-    private val speedResults = mutableListOf<Pair<Site, Long>>()
+    // ==================== 隐私 / 崩溃日志 ====================
 
-    private fun startSpeedTest() {
-        val sites = configStore.getEnabledSiteList()
-        if (sites.isEmpty()) {
-            Toast.makeText(this, "没有可用站源", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        speedBtn.isEnabled = false
-        speedBtn.text = "测速中…"
-        speedResults.clear()
-        Toast.makeText(this, "开始测速 ${sites.size} 个站源，约 ${sites.size * 2} 秒", Toast.LENGTH_SHORT).show()
-
-        lifecycleScope.launch {
-            sites.forEach { site ->
-                val t0 = System.currentTimeMillis()
-                val ok = try {
-                    HttpClient.text(
-                        site.api + (if (site.api.contains('?')) "&" else "?") + "ac=list",
-                        timeoutMs = 5000
-                    )
-                    true
-                } catch (e: Exception) {
-                    false
-                }
-                val ms = System.currentTimeMillis() - t0
-                speedResults.add(Pair(site, if (ok) ms else Long.MAX_VALUE))
-            }
-
-            // 按速度排序
-            speedResults.sortBy { it.second }
-
-            speedBtn.isEnabled = true
-            speedBtn.text = "测速排行"
-            enableBestBtn.visibility = View.VISIBLE
-            enableAllBtn.visibility = View.VISIBLE
-
-            // 更新 UI 显示测速结果
-            refreshSpeedResultsUI()
-        }
-    }
-
-    private fun refreshSpeedResultsUI() {
-        sitesContainer.removeAllViews()
-        speedResults.forEachIndexed { index, (site, ms) ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(8), 0, dp(8))
-            }
-            val rank = TextView(this).apply {
-                text = "${index + 1}."
-                textSize = 16f
-                setTextColor(Color.WHITE)
-            }
-            row.addView(rank, LinearLayout.LayoutParams(dp(32), LinearLayout.LayoutParams.WRAP_CONTENT))
-            val nameView = TextView(this).apply {
-                text = site.name
-                textSize = 16f
-                setTextColor(Color.WHITE)
-            }
-            row.addView(nameView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            val speedView = TextView(this).apply {
-                text = if (ms == Long.MAX_VALUE) "不通" else "${ms} ms"
-                textSize = 15f
-                setTextColor(
-                    when {
-                        ms == Long.MAX_VALUE -> Color.parseColor("#FFB4AB")
-                        ms < 1000 -> Color.parseColor("#00FF88")
-                        ms < 3000 -> Color.parseColor("#FFEB3B")
-                        else -> Color.parseColor("#FFB4AB")
-                    }
-                )
-            }
-            row.addView(speedView)
-            sitesContainer.addView(row)
-            sitesContainer.addView(divider())
-        }
-    }
-
-    private fun enableBest5() {
-        val best5 = speedResults.take(5)
-            .filter { it.second != Long.MAX_VALUE }
-            .map { it.first.key }
-            .toSet()
-
-        configStore.saveEnabledSites(best5)
-        refreshSitesUI()
-        Toast.makeText(this, "已启用最快 ${best5.size} 个站源", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun enableAll() {
-        // 回到「未自定义」状态：所有可用站源自动启用
-        configStore.resetEnabledSites()
-        refreshSitesUI()
-        Toast.makeText(this, "已恢复全部启用", Toast.LENGTH_SHORT).show()
-    }
-
-    // ========== UI 工具 ==========
-
-    /** 片头/片尾跳过档位：0/15/30/60/90 秒 */
-    private val skipOptions = listOf(0, 15, 30, 60, 90)
-
-    private fun skipLabel(sec: Int): String = if (sec <= 0) "关" else "$sec 秒"
-
-    /** 一行「文字 + 当前档位」，点击弹档位选择 */
-    private fun skipRow(label: String, current: Int, onPick: (Int) -> Unit): LinearLayout {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(10), 0, dp(10))
-        }
-        row.addView(TextView(this).apply {
-            text = label
-            textSize = 16f
-            setTextColor(Color.WHITE)
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-        val value = TextView(this).apply {
-            text = skipLabel(current)
-            textSize = 15f
-            setTextColor(Color.parseColor("#FFEB3B"))
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-        }
-        row.addView(value)
-
-        row.setOnClickListener {
-            val labels = skipOptions.map { skipLabel(it) }.toTypedArray()
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle(label)
-                .setItems(labels) { _, which ->
-                    val v = skipOptions[which]
-                    onPick(v)
-                    value.text = skipLabel(v)
-                }
-                .show()
-        }
-        return row
-    }
-
-    /** 一行「文字 + 右侧开关」 */
-    private fun switchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit): LinearLayout {        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(10), 0, dp(10))
-        }
-        row.addView(TextView(this).apply {
-            text = label
-            textSize = 16f
-            setTextColor(Color.WHITE)
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(Switch(this).apply {
-            isChecked = checked
-            setOnCheckedChangeListener { _, isOn -> onChange(isOn) }
-        })
-        return row
-    }
-
-    /** 隐私政策全文弹窗 */
     private fun showPrivacyDialog() {
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("隐私政策")
@@ -839,30 +1004,25 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun sectionTitle(title: String): TextView {
-        return TextView(this).apply {
-            text = title
-            textSize = 15f
-            setTextColor(Color.parseColor("#8CFFFFFF"))
-            setPadding(0, dp(20), 0, dp(8))
-        }
-    }
-
-    private fun cardGroup(): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#1C1B1F"))
+    private fun showCrashLog(log: String) {
+        val scroll = ScrollView(this)
+        val tv = TextView(this).apply {
+            text = log
+            textSize = 12f
+            setTextColor(Color.parseColor("#DDDDDD"))
             setPadding(dp(16), dp(12), dp(16), dp(12))
+            typeface = Typeface.MONOSPACE
         }
-    }
-
-    private fun divider(): View {
-        return View(this).apply {
-            setBackgroundColor(Color.parseColor("#1FFFFFFF"))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)
-            ).also { it.marginStart = dp(18) }
-        }
+        scroll.addView(tv)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("上次崩溃日志")
+            .setView(scroll)
+            .setPositiveButton("关闭") { _, _ -> }
+            .setNegativeButton("清除") { _, _ ->
+                com.hong.tvbox.TvBoxApp.clearCrash(this)
+                Toast.makeText(this, "已清除", Toast.LENGTH_SHORT).show()
+            }
+            .show()
     }
 
     override fun onDestroy() {
@@ -875,10 +1035,9 @@ class SettingsActivity : AppCompatActivity() {
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density + 0.5f).toInt()
     }
-
 }
 
-// 扩展 ConfigStore，支持完整的配置加载
+// 扩展 ConfigStore：支持完整的配置加载
 fun ConfigStore.loadConfig(json: String): Int {
     saveConfigJson(json)
     return getConfig()?.sites?.size ?: 0
