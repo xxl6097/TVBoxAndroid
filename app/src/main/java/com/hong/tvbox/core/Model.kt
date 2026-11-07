@@ -34,7 +34,9 @@ data class Parse(
 
 data class LiveSource(
     @SerializedName("name") var name: String = "",
-    @SerializedName("url") var url: String = ""
+    @SerializedName("url") var url: String = "",
+    /** 内嵌 m3u 数据（订阅里 lives 的一种格式：{name, channels, data}，data 直接是 m3u 行） */
+    @SerializedName("data") var data: List<String> = emptyList()
 )
 
 // ============ 分类 ============

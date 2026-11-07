@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import com.hong.tvbox.Feedback
 import com.hong.tvbox.core.CmsClient
 import com.hong.tvbox.core.HttpClient
+import com.hong.tvbox.core.LiveSource
 import com.hong.tvbox.core.Site
 import com.hong.tvbox.core.WebdavSource
 import com.hong.tvbox.data.ConfigStore
@@ -742,7 +743,34 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun absorbLives() {
         val lives = configStore.getConfig()?.lives ?: return
-        val valid = lives.filter { it.url.startsWith("http://") || it.url.startsWith("https://") }
+        val valid = mutableListOf<LiveSource>()
+        val embedded = StringBuilder("#EXTM3U\n")
+        var embedChannels = 0
+
+        for (l in lives) {
+            if (l.url.startsWith("http://") || l.url.startsWith("https://")) {
+                valid.add(LiveSource(name = l.name, url = l.url))
+            } else if (l.data.isNotEmpty()) {
+                // 内嵌 m3u 数据格式（{name, channels, data}）：拼进一个合并源
+                for (line in l.data) {
+                    val t = line.trim()
+                    if (t.isNotEmpty()) embedded.append(t).append('\n')
+                }
+                embedChannels += l.data.count { it.trim().startsWith("http") }
+            }
+        }
+
+        // 内嵌源落盘成一个本地 m3u，作为独立候选源（LiveClient 支持读本地文件）
+        if (embedChannels > 0) {
+            try {
+                val file = java.io.File(filesDir, "embedded_lives.m3u")
+                file.writeText(embedded.toString())
+                valid.add(LiveSource(name = "📡内嵌频道（$embedChannels 台）", url = file.absolutePath))
+            } catch (e: Exception) {
+                // 落盘失败不影响 url 源
+            }
+        }
+
         if (valid.isEmpty()) return
         configStore.saveSubLives(valid)
         val cur = configStore.getLiveSourceUrl()

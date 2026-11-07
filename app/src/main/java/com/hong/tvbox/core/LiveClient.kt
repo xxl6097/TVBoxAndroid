@@ -1,5 +1,9 @@
 package com.hong.tvbox.core
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+
 /**
  * 直播源解析 + 频道目录 - 从鸿蒙 Live.ets 移植
  *
@@ -21,6 +25,10 @@ object LiveClient {
      */
     suspend fun probe(url: String, timeoutMs: Int = 2500): Boolean {
         if (url.isEmpty()) return false
+        // 本地文件（内嵌 m3u 落盘）：文件在就视为可用
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return File(url).exists()
+        }
         return try {
             val head = HttpClient.peek(url, timeoutMs.toLong())
             if (head.isEmpty()) return false
@@ -40,12 +48,27 @@ object LiveClient {
 
     /** 拉取并解析。失败抛异常，由调用方展示文案 */
     suspend fun load(url: String, timeoutMs: Long = 25000): List<ChannelGroup> {
-        val txt = HttpClient.text(url, timeoutMs = timeoutMs)
+        val txt = readSource(url, timeoutMs)
         if (txt.trim().isEmpty()) throw Exception("直播源返回空内容")
 
         val groups = parse(txt)
         if (groups.isEmpty()) throw Exception("没解析出频道，检查源格式是否为 m3u/txt")
         return groups
+    }
+
+    /**
+     * 读取直播源内容：http/https 走网络，其余视为本地文件路径直接读。
+     * 内嵌 data 格式的订阅直播源在导入时落盘成本地 m3u，这里直接读文件。
+     */
+    private suspend fun readSource(url: String, timeoutMs: Long): String {
+        return if (url.startsWith("http://") || url.startsWith("https://")) {
+            HttpClient.text(url, timeoutMs = timeoutMs)
+        } else {
+            withContext(Dispatchers.IO) {
+                val f = File(url)
+                if (f.exists()) f.readText() else throw Exception("本地直播源文件不存在")
+            }
+        }
     }
 
     fun parse(text: String): List<ChannelGroup> {
