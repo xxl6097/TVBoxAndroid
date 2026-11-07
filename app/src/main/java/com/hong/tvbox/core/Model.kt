@@ -1,6 +1,35 @@
 package com.hong.tvbox.core
 
+import com.google.gson.JsonParser
+import com.google.gson.TypeAdapter
+import com.google.gson.annotations.JsonAdapter
 import com.google.gson.annotations.SerializedName
+import com.google.gson.stream.JsonReader
+import com.google.gson.stream.JsonToken
+import com.google.gson.stream.JsonWriter
+
+/**
+ * ext 字段兼容两种形态：既可能是筛选参数 JSON 字符串，也可能是纯元信息对象
+ * （如订阅里的 {"note":"...","library":162826}）。对象统一转成 JSON 字符串，
+ * 让整个 Config 能正常反序列化，筛选解析侧会安全地返回空。
+ */
+class ExtAdapter : TypeAdapter<String>() {
+    override fun write(out: JsonWriter, value: String?) {
+        out.value(value ?: "")
+    }
+
+    override fun read(reader: JsonReader): String {
+        return when (reader.peek()) {
+            JsonToken.STRING -> reader.nextString()
+            JsonToken.BEGIN_OBJECT, JsonToken.BEGIN_ARRAY ->
+                JsonParser.parseReader(reader).toString()
+            else -> {
+                reader.skipValue()
+                ""
+            }
+        }
+    }
+}
 
 /**
  * 数据模型 - 从 ArkTS Model.ets 移植
@@ -15,7 +44,7 @@ data class Site(
     @SerializedName("api") var api: String = "",
     @SerializedName("searchable") var searchable: Int = 1,
     @SerializedName("quickSearch") var quickSearch: Int = 0,
-    @SerializedName("ext") var ext: String = "",
+    @SerializedName("ext") @JsonAdapter(ExtAdapter::class) var ext: String = "",
     var usable: Boolean = true,      // type=3 爬虫标记不可用
     var reason: String = ""
 )
