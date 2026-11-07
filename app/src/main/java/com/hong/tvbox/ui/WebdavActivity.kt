@@ -17,7 +17,9 @@ import com.hong.tvbox.core.History
 import com.hong.tvbox.core.Episode
 import com.hong.tvbox.core.WebdavClient
 import com.hong.tvbox.core.WebdavEntry
+import com.hong.tvbox.core.WebdavEp
 import com.hong.tvbox.core.WebdavSource
+import com.hong.tvbox.core.WebdavVod
 import com.hong.tvbox.data.ConfigStore
 import com.hong.tvbox.data.HistoryStore
 import kotlinx.coroutines.launch
@@ -93,6 +95,7 @@ class WebdavActivity : AppCompatActivity() {
         topBar.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
         topBar.addView(chip("添加源") { editSource(null) })
+        topBar.addView(chip("识别影视") { startScan() })
         topBar.addView(chip("切换源") { renderSources() })
         root.addView(topBar)
 
@@ -162,6 +165,113 @@ class WebdavActivity : AppCompatActivity() {
         } else {
             finish()
         }
+    }
+
+    // ============ 影视识别 ============
+
+    private var scanVods: List<WebdavVod> = emptyList()
+
+    private fun startScan() {
+        val src = source ?: run {
+            Toast.makeText(this, "请先进入一个网盘源", Toast.LENGTH_SHORT).show()
+            return
+        }
+        statusView.text = "正在扫描影视资源…"
+        lifecycleScope.launch {
+            try {
+                val vods = WebdavClient.scan(src, 6) { dirs, files ->
+                    statusView.text = "扫描中… 已扫 $dirs 个目录，发现 $files 个视频"
+                }
+                scanVods = vods
+                renderScanResult(vods)
+            } catch (e: Exception) {
+                statusView.text = "扫描失败：${e.message}"
+            }
+        }
+    }
+
+    private fun renderScanResult(vods: List<WebdavVod>) {
+        listContainer.removeAllViews()
+        showListMode()
+        titleView.text = "网盘 · 识别结果"
+        pathView.text = ""
+        statusView.text = if (vods.isEmpty()) "没识别出影视，点「切换源」回目录浏览" else "识别到 ${vods.size} 部"
+
+        vods.forEach { vod ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+            }
+            val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            info.addView(TextView(this).apply {
+                text = vod.name
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            info.addView(TextView(this).apply {
+                text = vodMeta(vod)
+                textSize = 12f
+                setTextColor(TvUi.DIM)
+                setPadding(0, dp(3), 0, 0)
+            })
+            row.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+
+            row.addView(smallChip("播放") { playVod(vod) })
+            row.setOnClickListener { playVod(vod) }
+            row.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1f)
+            row.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).also { it.bottomMargin = dp(4) }
+            listContainer.addView(row)
+        }
+    }
+
+    private fun vodMeta(vod: WebdavVod): String {
+        val sb = StringBuilder(if (vod.kind == "series") "剧集 · " else "电影 · ")
+        if (vod.year.isNotEmpty()) sb.append(vod.year).append(" · ")
+        sb.append(vod.eps.size).append(" 集")
+        return sb.toString()
+    }
+
+    private fun playVod(vod: WebdavVod) {
+        if (vod.eps.size == 1) {
+            playEp(vod, 0)
+        } else {
+            openEpDialog(vod)
+        }
+    }
+
+    private fun openEpDialog(vod: WebdavVod) {
+        val names = vod.eps.map { WebdavClient.epNameOf(it) }.toTypedArray()
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(vod.name)
+            .setItems(names) { _, which -> playEp(vod, which) }
+            .show()
+    }
+
+    private fun playEp(vod: WebdavVod, idx: Int) {
+        val src = source ?: return
+        val eps = vod.eps.map { Episode(name = WebdavClient.epNameOf(it), url = it.url) }
+        if (eps.isEmpty()) return
+        val i = idx.coerceIn(0, eps.size - 1)
+
+        // 历史记录用当前集的地址（续播时直接拿地址 + 源认证播）
+        PlayerActivity.start(
+            context = this,
+            vodId = vod.eps[i].url,
+            siteKey = "webdav:${src.id}",
+            vodName = vod.name,
+            lineName = "网盘",
+            allEpisodes = eps,
+            episodeIndex = i,
+            isDirect = true,
+            siteApi = "",
+            authHeader = WebdavClient.authHeader(src).orEmpty(),
+            vodPic = ""
+        )
     }
 
     // ============ 源列表 ============

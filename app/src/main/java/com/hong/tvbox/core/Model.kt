@@ -132,6 +132,25 @@ data class WebdavEntry(
     var contentType: String = "" // 服务端给的 getcontenttype，形如 video/mp4
 )
 
+/** 识别出的一部影视（网盘影视识别结果） */
+data class WebdavVod(
+    var name: String = "",
+    /** movie = 电影 / series = 剧集 */
+    var kind: String = "movie",
+    var year: String = "",
+    var dir: String = "",
+    var eps: MutableList<WebdavEp> = mutableListOf()
+)
+
+/** 识别出的一集 */
+data class WebdavEp(
+    var name: String = "",
+    var url: String = "",
+    var href: String = "",
+    var season: Int = 0,
+    var episode: Int = 0
+)
+
 data class Line(
     var name: String = "",
     var direct: Boolean = false,    // 是否可直连播放

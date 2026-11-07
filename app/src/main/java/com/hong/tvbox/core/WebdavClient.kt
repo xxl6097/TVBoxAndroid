@@ -15,10 +15,10 @@ import kotlinx.coroutines.withContext
  */
 object WebdavClient {
 
-    /** 视频扩展名白名单，和鸿蒙版保持一致 */
+    /** 视频扩展名白名单（对齐鸿蒙 19 个） */
     private val VIDEO_EXT = listOf(
-        "mp4", "mkv", "avi", "mov", "wmv", "flv", "ts", "m2ts",
-        "webm", "rmvb", "rm", "mpg", "mpeg", "m4v", "iso"
+        "mp4", "mkv", "avi", "ts", "m2ts", "mts", "mov", "wmv", "flv",
+        "rmvb", "rm", "m4v", "webm", "3gp", "mpg", "mpeg", "vob", "m2t", "f4v"
     )
 
     fun isVideo(name: String): Boolean {
@@ -43,6 +43,201 @@ object WebdavClient {
     fun isImage(name: String): Boolean {
         val ext = name.substringAfterLast('.', "").lowercase()
         return ext in listOf("jpg", "jpeg", "png", "webp", "bmp")
+    }
+
+    // ==================== 影视识别 ====================
+
+    /** 一个文件名解析出的影视元信息 */
+    private data class Parsed(
+        var title: String = "",
+        var season: Int = 0,
+        var episode: Int = 0,
+        var year: String = "",
+        var isSeries: Boolean = false
+    )
+
+    /**
+     * 解析文件名 → 影视元信息（SxxExx / 第xx集 / Exx / 末尾数字 / 年份 / 纯数字）。
+     * 与鸿蒙 Webdav.parse 完全一致。
+     */
+    fun parseName(name: String): Parsed {
+        val p = Parsed()
+        var base = name
+        val dot = base.lastIndexOf('.')
+        if (dot > 0) {
+            val ext = base.substring(dot + 1).lowercase()
+            if (VIDEO_EXT.contains(ext)) base = base.substring(0, dot)
+        }
+
+        // 纯数字文件名（1.mp4 / 01.mp4 / 001.mp4）：集号=数字，片名由父目录名补
+        val pure = Regex("^\\s*(\\d{1,4})\\s*$").find(base)
+        if (pure != null) {
+            p.episode = pure.groupValues[1].toInt()
+            p.isSeries = true
+            p.title = ""
+            return p
+        }
+
+        val ym = Regex("((?:19|20)\\d{2})").find(base)
+        if (ym != null) {
+            p.year = ym.groupValues[1]
+            base = base.replace(ym.groupValues[1], " ")
+        }
+
+        val sm = Regex("[Ss](\\d{1,2})\\s*[Ee](\\d{1,3})").find(base)
+        if (sm != null) {
+            p.season = sm.groupValues[1].toInt()
+            p.episode = sm.groupValues[2].toInt()
+            p.isSeries = true
+            base = base.replace(sm.value, " ")
+        } else {
+            val cm = Regex("第\\s*(\\d{1,3})\\s*[集話话]").find(base)
+            if (cm != null) {
+                p.episode = cm.groupValues[1].toInt()
+                p.isSeries = true
+                base = base.replace(cm.value, " ")
+            } else {
+                val em = Regex("[Ee][Pp]?\\s*(\\d{1,3})\\b").find(base)
+                if (em != null) {
+                    p.episode = em.groupValues[1].toInt()
+                    p.isSeries = true
+                    base = base.replace(em.value, " ")
+                } else {
+                    val tail = Regex("(?:[._\\-\\s])(\\d{1,3})\\s*$").find(base)
+                    if (tail != null) {
+                        val n = tail.groupValues[1].toInt()
+                        if (n in 1..999) {
+                            p.episode = n
+                            p.isSeries = true
+                            base = base.substring(0, tail.range.first)
+                        }
+                    }
+                }
+            }
+        }
+
+        p.title = cleanTitle(base)
+        return p
+    }
+
+    /** 清理分辨率/编码标签，分隔符换空格，得到干净片名 */
+    fun cleanTitle(s: String): String {
+        var t = s
+        t = t.replace(Regex("1080[pi]|720[pi]|2160[pi]|480[pi]|576[pi]|4[Kk]|8[Kk]"), " ")
+        t = t.replace(
+            Regex("x26[45]|h26[45]|hevc|hdr10?|10bit|8bit|aac|dts|dd5\\.1|truehd|atmos|bluray|blu-ray|web-?dl|webrip|remux|proper|repack"),
+            " "
+        )
+        t = t.replace(Regex("[._\\[\\]()（）\\-]+"), " ")
+        t = t.replace(Regex("\\s{2,}"), " ").trim()
+        return t
+    }
+
+    /** 清理目录名里的季/卷序号前缀，如「01 风起天南」→「风起天南」 */
+    fun cleanDirName(name: String): String {
+        return name.replace(Regex("^\\d{1,3}\\s*[-_ ]?\\s*"), "").trim()
+    }
+
+    fun stripExt(name: String): String {
+        val dot = name.lastIndexOf('.')
+        return if (dot > 0) name.substring(0, dot) else name
+    }
+
+    /** 集名：SxxExx / 第 N 集 / 去扩展名 */
+    fun epNameOf(ep: WebdavEp): String = when {
+        ep.season > 0 && ep.episode > 0 ->
+            "S" + ep.season.toString().padStart(2, '0') + "E" + ep.episode.toString().padStart(2, '0')
+        ep.episode > 0 -> "第 ${ep.episode} 集"
+        else -> stripExt(ep.name)
+    }
+
+    /**
+     * 递归扫描目录树，识别影视并聚合（电影/剧集 + 季/集）。
+     *
+     * maxDepth 限制递归层数；最多扫 200 个目录；每批并发 6 个 PROPFIND。
+     * onProgress 回调（已扫目录数, 已发现视频数）。
+     */
+    suspend fun scan(
+        source: WebdavSource,
+        maxDepth: Int = 6,
+        onProgress: ((dirs: Int, files: Int) -> Unit)? = null
+    ): List<WebdavVod> = withContext(Dispatchers.IO) {
+        // (相对目录, 条目)
+        val files = mutableListOf<Pair<String, WebdavEntry>>()
+        val DIR_BUDGET = 200
+        val BATCH = 6
+        var current = listOf("")
+        var depth = 0
+        var scanned = 0
+
+        while (current.isNotEmpty() && depth <= maxDepth && scanned < DIR_BUDGET) {
+            val next = mutableListOf<String>()
+            for (b in current.indices step BATCH) {
+                val slice = current.subList(b, minOf(b + BATCH, current.size))
+                val results = slice.map { dir ->
+                    try {
+                        dir to list(source, dir)
+                    } catch (e: Exception) {
+                        dir to emptyList<WebdavEntry>()
+                    }
+                }
+                results.forEach { (dir, entries) ->
+                    entries.forEach { e ->
+                        if (e.isDir) {
+                            next.add(if (dir.isEmpty()) e.name else "$dir/${e.name}")
+                        } else if (isVideo(e.name) || e.contentType.startsWith("video/")) {
+                            files.add(dir to e)
+                        }
+                    }
+                }
+            }
+            scanned += current.size
+            onProgress?.invoke(scanned, files.size)
+            current = next
+            depth++
+        }
+
+        // 聚合：剧集按 (目录+片名) 归组；电影/单集每条独立
+        val vods = mutableListOf<WebdavVod>()
+        val idx = HashMap<String, Int>()
+        files.forEachIndexed { i, (dir, f) ->
+            val p = parseName(f.name)
+            var title = p.title
+            if (title.isEmpty() && p.isSeries) {
+                title = cleanDirName(dir.substringAfterLast('/', dir))
+            }
+            val key = if (p.isSeries) "$dir|$title" else "#$i"
+            var pos = idx[key]
+            if (pos == null) {
+                val v = WebdavVod(
+                    name = if (title.isNotEmpty()) title else stripExt(f.name),
+                    kind = if (p.isSeries) "series" else "movie",
+                    year = p.year,
+                    dir = dir
+                )
+                vods.add(v)
+                pos = vods.size - 1
+                idx[key] = pos
+            }
+            val vod = vods[pos]
+            vod.eps.add(
+                WebdavEp(
+                    name = f.name,
+                    url = absoluteUrl(source, f.href),
+                    href = f.href,
+                    season = p.season,
+                    episode = p.episode
+                )
+            )
+        }
+
+        // 剧集内部按 季 + 集 排序
+        vods.forEach { v ->
+            if (v.kind == "series") {
+                v.eps.sortWith(compareBy({ it.season }, { it.episode }))
+            }
+        }
+        vods
     }
 
     /** Basic 认证头；没有账号密码时返回 null */
