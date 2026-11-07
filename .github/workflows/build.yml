@@ -51,6 +51,14 @@ jobs:
       - name: Build Release (R8 check, unsigned)
         run: ./gradlew assembleRelease --no-daemon
 
+      # 未签名 release 也上传，供本地用固定密钥签名后安装到真机
+      - name: Upload Release APK (unsigned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBoxAndroid-release-unsigned
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          retention-days: 7
+
       - name: Show APK Info
         run: |
           echo "== debug =="
