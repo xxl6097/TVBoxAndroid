@@ -85,6 +85,22 @@ class DetailActivity : AppCompatActivity() {
         loadDetail(vodId, siteKey, siteName)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 从播放页返回后刷新「上次看到第 N 集」并重新定位
+        if (this::historyStore.isInitialized && vod.id.isNotEmpty() && this::episodesGrid.isInitialized) {
+            val vodId = intent.getStringExtra(EXTRA_VOD_ID) ?: return
+            val siteKey = intent.getStringExtra(EXTRA_SITE_KEY) ?: return
+            val idx = historyStore.get(vodId, siteKey)?.episodeIndex ?: -1
+            if (idx != seenEpisodeIndex) {
+                seenEpisodeIndex = idx
+                updateEpisodeLabel()
+                rebuildEpisodesUI()
+                locateSeen()
+            }
+        }
+    }
+
     private fun buildUI() {
         val root = ScrollView(this)
         root.setBackgroundColor(Color.parseColor("#141218"))
@@ -210,7 +226,7 @@ class DetailActivity : AppCompatActivity() {
         toggleIntroBtn.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1f)
         infoCol.addView(toggleIntroBtn)
 
-        // 线路选择
+        // 线路选择（横向可滚动，线路多时不溢出屏幕）
         linesContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(14), 0, 0)
@@ -224,7 +240,10 @@ class DetailActivity : AppCompatActivity() {
             setPadding(0, 0, dp(12), 0)
         }
         linesContainer.addView(linesLabel)
-        infoCol.addView(linesContainer)
+        infoCol.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(linesContainer)
+        })
 
         bodyRow.addView(infoCol, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         container.addView(bodyRow)
@@ -346,21 +365,48 @@ class DetailActivity : AppCompatActivity() {
 
         // 剧集
         if (lines.isNotEmpty()) {
-            val label = "剧集  共 ${lines[currentLineIndex].eps.size} 集" +
-                    (if (seenEpisodeIndex >= 0) "  上次看到第 ${seenEpisodeIndex + 1} 集" else "")
-            episodesLabel.text = label
+            updateEpisodeLabel()
             episodesLabel.visibility = View.VISIBLE
             episodesHeader.visibility = View.VISIBLE
             rebuildEpisodesUI()
 
-            // 上次看到第 N 集时，进来直接把剧集区滚进视野，不用自己找
-            if (seenEpisodeIndex >= 0) {
-                scrollView.post { scrollView.smoothScrollTo(0, episodesHeader.top) }
-            }
+            // 上次看到第 N 集时，进来直接滚到该集上一行开头（不是只滚到标题）
+            if (seenEpisodeIndex >= 0) locateSeen()
         }
 
         // 显示主体
         bodyRowView.visibility = View.VISIBLE
+    }
+
+    private fun updateEpisodeLabel() {
+        val eps = if (lines.isNotEmpty() && currentLineIndex < lines.size) {
+            lines[currentLineIndex].eps.size
+        } else 0
+        episodesLabel.text = "剧集  共 $eps 集" +
+                (if (seenEpisodeIndex >= 0) "  上次看到第 ${seenEpisodeIndex + 1} 集" else "")
+    }
+
+    /** 滚动到「上次看到那一集」的上一行开头，最多重试 6 次等布局完成 */
+    private fun locateSeen() {
+        if (seenEpisodeIndex < 0) return
+        var tries = 0
+        val r = object : Runnable {
+            override fun run() {
+                tries++
+                if (!this@DetailActivity::episodesGrid.isInitialized || episodesGrid.top <= 0) {
+                    if (tries < 6) scrollView.postDelayed(this, 120) else return
+                    return
+                }
+                // 倒序时换算显示行号
+                val eps = lines[currentLineIndex].eps
+                val displayPos = if (epDesc) eps.size - 1 - seenEpisodeIndex else seenEpisodeIndex
+                val row = (displayPos / 8).coerceAtLeast(0)
+                val cellPx = dp(56) // 46 高 + 上下 5 边距
+                val target = (episodesGrid.top + (row - 1) * cellPx).coerceAtLeast(0)
+                scrollView.smoothScrollTo(0, target)
+            }
+        }
+        scrollView.post(r)
     }
 
     private fun rebuildLinesUI() {
