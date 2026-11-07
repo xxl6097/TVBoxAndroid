@@ -33,6 +33,12 @@ class ConfigStore(context: Context) {
         private const val KEY_WEBDAV_LIST = "webdav_list"
         private const val KEY_LIVE_PATH = "live_path"
         private const val KEY_LAST_UPDATE = "last_update"
+        private const val KEY_TAP_SOUND = "tap_sound"
+        private const val KEY_TAP_VIBRATE = "tap_vibrate"
+        private const val KEY_Q_PREF = "q_pref"
+        private const val KEY_INTRO_SKIP = "intro_skip"
+        private const val KEY_OUTRO_SKIP = "outro_skip"
+        private const val KEY_GUIDE_DONE = "guide_done"
     }
     
     /**
@@ -185,8 +191,31 @@ class ConfigStore(context: Context) {
         return getSubLives().firstOrNull { it.url == url }?.name ?: ""
     }
 
-    // ---------- 直播分组记忆 ----------
+    // ---------- 点击反馈 / 画质 / 跳过 / 引导 ----------
 
+    fun tapSound(): Boolean = prefs.getInt(KEY_TAP_SOUND, 1) != 0
+    fun setTapSound(on: Boolean) = prefs.edit().putInt(KEY_TAP_SOUND, if (on) 1 else 0).apply()
+
+    fun tapVibrate(): Boolean = prefs.getInt(KEY_TAP_VIBRATE, 1) != 0
+    fun setTapVibrate(on: Boolean) = prefs.edit().putInt(KEY_TAP_VIBRATE, if (on) 1 else 0).apply()
+
+    /** 画质偏好：0=自动，>0=高度上限(1080/720/480)，9999=原画 */
+    fun qPref(): Int = prefs.getInt(KEY_Q_PREF, 0)
+    fun setQPref(v: Int) = prefs.edit().putInt(KEY_Q_PREF, v).apply()
+
+    /** 片头跳过秒数，0=不跳过 */
+    fun introSkipSec(): Int = prefs.getInt(KEY_INTRO_SKIP, 0)
+    fun setIntroSkipSec(v: Int) = prefs.edit().putInt(KEY_INTRO_SKIP, v).apply()
+
+    /** 片尾跳过秒数，0=不跳过 */
+    fun outroSkipSec(): Int = prefs.getInt(KEY_OUTRO_SKIP, 0)
+    fun setOutroSkipSec(v: Int) = prefs.edit().putInt(KEY_OUTRO_SKIP, v).apply()
+
+    /** 首启引导是否已看过 */
+    fun guideDone(): Boolean = prefs.getBoolean(KEY_GUIDE_DONE, false)
+    fun setGuideDone() = prefs.edit().putBoolean(KEY_GUIDE_DONE, true).apply()
+
+    // ---------- 直播分组记忆 ----------
     /** 上次停留的直播分组路径（用不可见字符分隔，分组名里可能有 / ） */
     fun getLastLivePath(): List<String> {
         val raw = prefs.getString(KEY_LIVE_PATH, "") ?: ""

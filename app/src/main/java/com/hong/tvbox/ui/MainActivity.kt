@@ -3,6 +3,8 @@ package com.hong.tvbox.ui
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -19,6 +21,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
+import com.hong.tvbox.Feedback
+import com.hong.tvbox.R
 import com.hong.tvbox.core.CmsClient
 import com.hong.tvbox.core.Crawler
 import com.hong.tvbox.core.History
@@ -45,6 +49,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var historyStore: HistoryStore
 
     private lateinit var content: LinearLayout
+    private lateinit var clockView: TextView
+    private val clockTicker = Handler(Looper.getMainLooper())
+    private val clockRunnable = object : Runnable {
+        override fun run() {
+            if (this@MainActivity::clockView.isInitialized) {
+                val d = java.util.Calendar.getInstance()
+                clockView.text = String.format(
+                    "%02d:%02d:%02d",
+                    d.get(java.util.Calendar.HOUR_OF_DAY),
+                    d.get(java.util.Calendar.MINUTE),
+                    d.get(java.util.Calendar.SECOND)
+                )
+                clockTicker.postDelayed(this, 1000)
+            }
+        }
+    }
 
     private var pendingSites = 0
     private var crawlRunning = false
@@ -67,6 +87,11 @@ class MainActivity : AppCompatActivity() {
         if (configStore.isPrivacyAgreed() && this::content.isInitialized) {
             renderDynamic()
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        clockTicker.removeCallbacks(clockRunnable)
     }
 
     // ============ 骨架 ============
@@ -129,27 +154,30 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(10))
         }
 
+        // logo 48dp + 标题 24sp + 右侧时钟 24sp（对照鸿蒙首页 toolbar）
+        bar.addView(ImageView(this).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+        }, LinearLayout.LayoutParams(dp(48), dp(48)).also { it.marginEnd = dp(12) })
+
         bar.addView(TextView(this).apply {
             text = "鸿蒙影视"
-            textSize = 22f
+            textSize = 24f
             setTextColor(Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
-        bar.addView(action("搜索") { startActivity(Intent(this, SearchActivity::class.java)) })
-        bar.addView(action("设置") { SettingsActivity.start(this) })
-        return bar
-    }
-
-    private fun action(label: String, onClick: () -> Unit): TextView {
-        return TextView(this).apply {
-            text = label
-            textSize = 15f
+        clockView = TextView(this).apply {
+            text = "00:00:00"
+            textSize = 24f
             setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(dp(76), dp(36)).also { it.marginStart = dp(10) }
-            onTvFocus(scale = 1f)
         }
+        bar.addView(clockView)
+        clockTicker.removeCallbacks(clockRunnable)
+        clockTicker.post(clockRunnable)
+
+        return bar
     }
 
     private fun renderDynamic() {
@@ -177,22 +205,49 @@ class MainActivity : AppCompatActivity() {
             "历史" to { HistoryActivity.start(this) },
             "设置" to { SettingsActivity.start(this) }
         ).forEach { pair ->
-            row.addView(TextView(this).apply {
-                text = pair.first
-                textSize = 16f
-                setTextColor(Color.WHITE)
-                gravity = Gravity.CENTER
-                setOnClickListener { pair.second() }
-                onTvFocus(scale = 1f)
-                layoutParams = LinearLayout.LayoutParams(dp(112), dp(64)).also {
-                    it.marginEnd = dp(12)
-                }
-            })
+            row.addView(funcCell(pair.first, pair.second))
         }
 
         content.addView(row, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).also { it.bottomMargin = dp(16) })
+    }
+
+    /** 功能块：图标 34dp + 文字 17sp，1fr×8 等分，聚焦放大 1.1 */
+    private fun funcCell(label: String, onClick: () -> Unit): View {
+        val cell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setOnClickListener {
+                Feedback.tap(this@MainActivity)
+                onClick()
+            }
+            onTvFocus(scale = 1.1f)
+        }
+        cell.addView(ImageView(this).apply {
+            setImageResource(funcIcon(label))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }, LinearLayout.LayoutParams(dp(34), dp(34)))
+        cell.addView(TextView(this).apply {
+            text = label
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            maxLines = 1
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.topMargin = dp(4) })
+
+        cell.layoutParams = LinearLayout.LayoutParams(0, dp(74), 1f)
+        return cell
+    }
+
+    private fun funcIcon(label: String): Int = when (label) {
+        "直播" -> R.drawable.ic_live
+        "搜索" -> R.drawable.ic_search
+        "收藏" -> R.drawable.ic_collect
+        "历史" -> R.drawable.ic_history
+        "设置" -> R.drawable.ic_setting
+        else -> R.drawable.ic_vod
     }
 
     // ============ 继续观看 ============
@@ -255,6 +310,7 @@ class MainActivity : AppCompatActivity() {
 
         // 点「继续观看」直接续播，不绕详情页
         card.setOnClickListener {
+            Feedback.tap(this@MainActivity)
             PlaybackResumer.resume(lifecycleScope, this, configStore, h) { msg ->
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             }
@@ -344,7 +400,10 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).also { it.marginEnd = dp(12) }
 
-        card.setOnClickListener { DetailActivity.start(this, vod) }
+        card.setOnClickListener {
+            Feedback.tap(this@MainActivity)
+            DetailActivity.start(this, vod)
+        }
         card.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1.05f)
         return card
     }

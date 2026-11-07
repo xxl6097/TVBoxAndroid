@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.hong.tvbox.Feedback
 import com.hong.tvbox.core.CmsClient
 import com.hong.tvbox.core.HttpClient
 import com.hong.tvbox.core.Site
@@ -253,6 +254,25 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         root.addView(clearHistBtn)
+
+        // 点击反馈：声音 / 震动（默认都开，切开关后即时生效）
+        root.addView(switchRow("点击声音", configStore.tapSound()) { on ->
+            configStore.setTapSound(on)
+            Feedback.refresh(this)
+        })
+        root.addView(switchRow("点击震动", configStore.tapVibrate()) { on ->
+            configStore.setTapVibrate(on)
+            Feedback.refresh(this)
+        })
+
+        // 隐私政策入口
+        root.addView(TextView(this).apply {
+            text = "隐私政策"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(12), 0, dp(8))
+            setOnClickListener { showPrivacyDialog() }
+        })
 
         // 上次崩溃日志（有才显示，方便盒子上排障）
         val crash = com.hong.tvbox.TvBoxApp.readCrash(this)
@@ -720,6 +740,51 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     // ========== UI 工具 ==========
+
+    /** 一行「文字 + 右侧开关」 */
+    private fun switchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, dp(10))
+        }
+        row.addView(TextView(this).apply {
+            text = label
+            textSize = 16f
+            setTextColor(Color.WHITE)
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(Switch(this).apply {
+            isChecked = checked
+            setOnCheckedChangeListener { _, isOn -> onChange(isOn) }
+        })
+        return row
+    }
+
+    /** 隐私政策全文弹窗 */
+    private fun showPrivacyDialog() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("隐私政策")
+            .setMessage(
+                """
+                本应用没有注册、登录、手机号、邮箱等账号体系，也没有自己的服务器。
+                你的源地址、收藏、观看历史、播放进度、画质偏好全部只保存在本机，卸载即清除。
+
+                联网只做这些事：请求你自己填写的点播配置地址与直播源地址，读取其中列出的
+                站点接口，并按地址播放视频流；点「测速排行」时向这些地址发一次探测请求。
+                这些请求由你的设备直接发往第三方，不经过开发者。
+
+                权限只用三项：联网、读取网络状态、震动。不申请位置、通讯录、短信、相机、
+                麦克风、相册、设备标识符等任何权限。
+
+                本应用不包含广告与统计 SDK，无推送、无埋点、无崩溃上报。
+
+                本应用不提供、不存储、不分发任何影视内容，仅为播放器与源管理工具。
+                内容全部来自你自行填写的第三方接口，请确保来源合法。
+                """.trimIndent()
+            )
+            .setPositiveButton("知道了", null)
+            .show()
+    }
 
     private fun sectionTitle(title: String): TextView {
         return TextView(this).apply {

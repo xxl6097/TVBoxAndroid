@@ -23,6 +23,7 @@ class TvBoxApp : Application() {
         super.onCreate()
         appContext = this
         installCrashHandler(this)
+        Feedback.init(this)
     }
 
     companion object {
