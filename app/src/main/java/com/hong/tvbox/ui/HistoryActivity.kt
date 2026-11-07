@@ -30,6 +30,10 @@ class HistoryActivity : AppCompatActivity() {
     private lateinit var listContainer: LinearLayout
     private lateinit var statusView: TextView
 
+    /** 单条删除二次确认：存「siteKey|vodId」，6 秒内再点才真删 */
+    private var confirmDelKey = ""
+    private val delHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     companion object {
         fun start(context: Context) {
             context.startActivity(Intent(context, HistoryActivity::class.java))
@@ -163,13 +167,19 @@ class HistoryActivity : AppCompatActivity() {
         info.addView(name)
 
         val epText = buildString {
-            if (h.episodeName.isNotEmpty()) append(h.episodeName) else append("第 ${h.episodeIndex + 1} 集")
+            if (h.episodeName.isNotEmpty()) append(h.episodeName) else append("未开始")
             if (h.duration > 0) {
-                append("   看到 ")
+                append("   ·   看到 ")
                 append(fmt(h.position))
                 append(" / ")
                 append(fmt(h.duration))
             }
+            val siteName = configStore.getConfig()?.sites?.find { it.key == h.siteKey }?.name
+            if (!siteName.isNullOrEmpty()) {
+                append("   ·   ").append(siteName)
+            }
+            val ago = ago(h.updatedAt)
+            if (ago.isNotEmpty()) append("   ·   ").append(ago)
         }
         val ep = TextView(this).apply {
             text = epText
@@ -192,17 +202,31 @@ class HistoryActivity : AppCompatActivity() {
 
         row.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
+        val delKey = "${h.siteKey}|${h.vodId}"
         val del = TextView(this).apply {
-            text = "✕"
-            textSize = 16f
-            setTextColor(Color.parseColor("#80FFFFFF"))
+            text = if (confirmDelKey == delKey) "确认删除？" else "删除"
+            textSize = 14f
+            setTextColor(if (confirmDelKey == delKey) Color.parseColor("#FFB4AB") else Color.parseColor("#80FFFFFF"))
             gravity = Gravity.CENTER
             setOnClickListener {
-                historyStore.remove(h.vodId, h.siteKey)
-                render()
+                if (confirmDelKey != delKey) {
+                    confirmDelKey = delKey
+                    Toast.makeText(
+                        this@HistoryActivity,
+                        "再点一次确认删除「${h.vodName}」，6 秒内有效",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    delHandler.removeCallbacksAndMessages(null)
+                    delHandler.postDelayed({ confirmDelKey = ""; render() }, 6000)
+                    render()
+                } else {
+                    confirmDelKey = ""
+                    historyStore.remove(h.vodId, h.siteKey)
+                    render()
+                }
             }
         }
-        row.addView(del, LinearLayout.LayoutParams(dp(40), dp(40)))
+        row.addView(del, LinearLayout.LayoutParams(dp(96), dp(40)))
 
         row.setOnClickListener { resume(h) }
         row.onTvFocus(
@@ -260,6 +284,19 @@ class HistoryActivity : AppCompatActivity() {
         val m = total / 60
         val s = total % 60
         return "%d:%02d".format(m, s)
+    }
+
+    /** 相对时间：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 */
+    private fun ago(t: Long): String {
+        if (t <= 0) return ""
+        val d = System.currentTimeMillis() - t
+        return when {
+            d < 60_000 -> "刚刚"
+            d < 3_600_000 -> "${d / 60_000} 分钟前"
+            d < 86_400_000 -> "${d / 3_600_000} 小时前"
+            d < 172_800_000 -> "昨天"
+            else -> "${d / 86_400_000} 天前"
+        }
     }
 
     private fun dp(value: Int): Int {

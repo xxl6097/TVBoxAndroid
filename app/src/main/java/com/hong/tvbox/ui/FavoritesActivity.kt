@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.bumptech.glide.Glide
 import com.hong.tvbox.core.Favorite
 import com.hong.tvbox.core.Vod
+import com.hong.tvbox.data.ConfigStore
 import com.hong.tvbox.data.FavoriteStore
 
 /**
@@ -22,6 +23,7 @@ import com.hong.tvbox.data.FavoriteStore
 class FavoritesActivity : AppCompatActivity() {
 
     private lateinit var favoriteStore: FavoriteStore
+    private lateinit var configStore: ConfigStore
     private lateinit var gridLayout: GridLayout
     private lateinit var statusView: TextView
 
@@ -34,6 +36,7 @@ class FavoritesActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         favoriteStore = FavoriteStore(this)
+        configStore = ConfigStore(this)
         buildUI()
         render()
     }
@@ -166,11 +169,13 @@ class FavoritesActivity : AppCompatActivity() {
             }
 
             card.setOnClickListener {
+                val siteName = configStore.getConfig()?.sites?.find { it.key == fav.siteKey }?.name.orEmpty()
                 DetailActivity.start(this, Vod(
                     id = fav.vodId,
                     name = fav.vodName,
                     pic = fav.vodPic,
-                    siteKey = fav.siteKey
+                    siteKey = fav.siteKey,
+                    siteName = siteName
                 ))
             }
             card.onTvFocus(

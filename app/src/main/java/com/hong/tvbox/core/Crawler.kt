@@ -24,16 +24,19 @@ object Crawler {
         val list: List<Vod> = emptyList()
     )
 
+    /** 首页「最近更新」最多保留几部（对齐鸿蒙 FEED_MAX） */
+    private const val FEED_MAX = 60
+
     /**
      * 跑一轮抓取。
      *
      * @param sites 已启用的站源
-     * @param perSite 每个站源最多收几条
+     * @param perSite 每个站源最多收几条（鸿蒙 PER_SITE=10）
      * @param maxSites 最多抓几个站源（站源多时避免一轮跑太久）
      */
     suspend fun run(
         sites: List<Site>,
-        perSite: Int = 6,
+        perSite: Int = 10,
         maxSites: Int = 12
     ): Result = withContext(Dispatchers.IO) {
         if (sites.isEmpty()) return@withContext Result()
@@ -61,12 +64,19 @@ object Crawler {
             }
         }
 
+        // 按「片名|年份」去重，再截断到 FEED_MAX
+        val seen = mutableSetOf<String>()
+        val dedup = items.filter { v ->
+            val k = v.name + "|" + v.year
+            seen.add(k)
+        }
+
         Result(
             sites = targets.size,
-            items = items.size,
+            items = dedup.size,
             dead = dead,
             at = System.currentTimeMillis(),
-            list = items
+            list = dedup.take(FEED_MAX)
         )
     }
 

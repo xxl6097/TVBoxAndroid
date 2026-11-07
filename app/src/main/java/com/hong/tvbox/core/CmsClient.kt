@@ -133,7 +133,7 @@ class CmsClient(private val site: Site) {
                 line.name = if (i < fArr.size && fArr[i].isNotEmpty()) fArr[i] else "线路 ${i + 1}"
                 
                 val segs = urlStr.split("#")
-                segs.forEach { seg ->
+                segs.forEachIndexed { k, seg ->
                     val trimmed = seg.trim()
                     if (trimmed.isNotEmpty()) {
                         val ep = Episode()
@@ -142,7 +142,8 @@ class CmsClient(private val site: Site) {
                             ep.name = trimmed.substring(0, dollarPos).trim()
                             ep.url = trimmed.substring(dollarPos + 1).trim()
                         } else {
-                            ep.name = "第 ${line.eps.size + 1} 集"
+                            // 对齐鸿蒙：用原始 seg 索引 k（含空 seg），空 seg 被跳过时集号不重排
+                            ep.name = "第 ${k + 1} 集"
                             ep.url = trimmed
                         }
                         if (ep.url.isNotEmpty() && ep.url.contains("://")) {

@@ -128,14 +128,33 @@ class DirectActivity : AppCompatActivity() {
                 setPadding(dp(12), dp(12), dp(12), dp(12))
             }
 
-            val text = TextView(this).apply {
-                text = url
-                textSize = 14f
+            // 两行：标题（解析文件名）+ 完整地址灰字
+            val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            text.addView(TextView(this).apply {
+                text = titleOf(url)
+                textSize = 15f
                 setTextColor(Color.WHITE)
                 maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            text.addView(TextView(this).apply {
+                text = url
+                textSize = 12f
+                setTextColor(TvUi.DIM)
+                maxLines = 1
                 ellipsize = TextUtils.TruncateAt.MIDDLE
-            }
+                setPadding(0, dp(3), 0, 0)
+            })
             row.addView(text, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+
+            val play = TextView(this).apply {
+                text = "播放"
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                setPadding(dp(14), dp(8), dp(14), dp(8))
+            }
+            row.addView(play)
 
             row.setOnClickListener {
                 urlInput.setText(url)
@@ -153,11 +172,13 @@ class DirectActivity : AppCompatActivity() {
     private fun playCurrent() {
         val url = urlInput.text.toString().trim()
         if (url.isEmpty()) {
-            Toast.makeText(this, "请先粘贴视频地址", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "先填一个地址", Toast.LENGTH_SHORT).show()
             return
         }
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            Toast.makeText(this, "只支持 http/https 地址", Toast.LENGTH_SHORT).show()
+        val ok = url.startsWith("http://") || url.startsWith("https://") ||
+            url.startsWith("file://") || url.startsWith("/data/")
+        if (!ok) {
+            Toast.makeText(this, "只支持 http / https / 本地文件路径，rtmp、rtsp 系统解码器播不了", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -169,7 +190,7 @@ class DirectActivity : AppCompatActivity() {
             context = this,
             vodId = "direct_$url",
             siteKey = "direct",
-            vodName = url.substringAfterLast('/'),
+            vodName = titleOf(url),
             lineName = "直连",
             allEpisodes = listOf(Episode(name = "直连", url = url)),
             episodeIndex = 0,
@@ -177,6 +198,18 @@ class DirectActivity : AppCompatActivity() {
             siteApi = "",
             skipHistory = true
         )
+    }
+
+    /** 标题解析：截 query → 取最后一段 → 去扩展名 → URL 解码 */
+    private fun titleOf(u: String): String {
+        var s = u.substringBefore('?')
+        s = s.substringAfterLast('/')
+        s = s.substringBeforeLast('.', s)
+        return try {
+            java.net.URLDecoder.decode(s, "UTF-8")
+        } catch (e: Exception) {
+            s
+        }
     }
 
     private fun dp(value: Int): Int {
