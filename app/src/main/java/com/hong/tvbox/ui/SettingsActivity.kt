@@ -654,7 +654,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun showInputDialog(title: String, hint: String, initial: String, onSubmit: (String) -> Unit) {
         val edit = EditText(this).apply {
             setText(initial)
-            hint = hint
+            setHint(hint)
             textSize = 15f
             setTextColor(Color.WHITE)
             setHintTextColor(TvUi.DIM)
@@ -951,9 +951,11 @@ class SettingsActivity : AppCompatActivity() {
             .setNegativeButton("取消", null)
         if (!isNew) {
             builder.setNeutralButton("删除") { _, _ ->
-                configStore.removeWebdavSource(src.id)
-                switchNav("webdav")
-                Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show()
+                src?.let {
+                    configStore.removeWebdavSource(it.id)
+                    switchNav("webdav")
+                    Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show()
+                }
             }
         }
         builder.setPositiveButton("保存") { _, _ ->
