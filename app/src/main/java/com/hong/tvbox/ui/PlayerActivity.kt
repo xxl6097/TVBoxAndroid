@@ -76,6 +76,16 @@ class PlayerActivity : AppCompatActivity() {
     /** 本轮是否已经因弱网自动降过档，避免反复降 */
     private var autoDowngraded = false
 
+    // ---- 片头 / 片尾跳过 ----
+    private var introSkipSec = 0
+    private var outroSkipSec = 0
+    private var introDone = false
+    private var outroFired = false
+    private lateinit var skipBtn: TextView
+    private val skipRunnable = Runnable { hideSkipButton() }
+    private var skipCountdown = 0
+    private var skipAction: (() -> Unit)? = null
+
     // UI 控件
     private lateinit var loadingView: View
     private lateinit var errorView: View
@@ -182,6 +192,9 @@ class PlayerActivity : AppCompatActivity() {
         authHeader = intent.getStringExtra(EXTRA_AUTH) ?: ""
         vodPic = intent.getStringExtra(EXTRA_VOD_PIC) ?: ""
         lineIndex = intent.getIntExtra(EXTRA_LINE_INDEX, 0)
+
+        introSkipSec = configStore.introSkipSec()
+        outroSkipSec = configStore.outroSkipSec()
 
         val epUrls = intent.getStringArrayExtra(EXTRA_EP_URLS) ?: arrayOf()
         val epNames = intent.getStringArrayExtra(EXTRA_EP_NAMES) ?: arrayOf()
@@ -393,6 +406,27 @@ class PlayerActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.CENTER
         ))
+
+        // 片头/片尾跳过按钮：右下角胶囊 + 倒计时
+        skipBtn = TextView(this).apply {
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#CC000000"))
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(22), dp(12), dp(22), dp(12))
+            visibility = View.GONE
+            setOnClickListener {
+                skipAction?.invoke()
+            }
+        }
+        root.addView(skipBtn, android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.END
+        ).also {
+            it.bottomMargin = dp(120)
+            it.rightMargin = dp(24)
+        })
 
         // 点击画面切换 OSD
         root.setOnClickListener {
@@ -722,6 +756,9 @@ class PlayerActivity : AppCompatActivity() {
                             isPlaying = true
                             osdPlayPauseBtn.text = "暂停"
                             showOsd()
+
+                            // 片头跳过：起播后若配了片头秒数且还没跳过，浮现「跳过片头」倒计时
+                            maybeShowIntroSkip(p.duration)
                         }
                         Player.STATE_BUFFERING -> {
                             isBuffering = true
@@ -784,11 +821,71 @@ class PlayerActivity : AppCompatActivity() {
                         osdProgress.progress = ((pos * 1000) / dur).toInt()
                         osdCurrentTime.text = formatTime(pos)
                         osdTotalTime.text = formatTime(dur)
+
+                        // 片尾跳过：靠近结尾时浮现「跳过片尾 / 下一集」倒计时
+                        maybeShowOutroSkip(pos, dur)
                     }
                 }
                 handler.postDelayed(this, 500)
             }
         }, 500)
+    }
+
+    // ============ 片头 / 片尾跳过 ============
+
+    private fun maybeShowIntroSkip(dur: Long) {
+        if (introSkipSec <= 0 || introDone || isLiveMode) return
+        // 片太短（剩余不足 30 秒）就不跳，别把正片跳没了
+        if (dur > 0 && introSkipSec * 1000L >= dur - 30_000L) return
+        showSkipButton("跳过片头") {
+            hideSkipButton()
+            introDone = true
+            player?.seekTo(introSkipSec * 1000L)
+            showTip("已跳过片头 ${fmtSec(introSkipSec)}")
+        }
+    }
+
+    private fun maybeShowOutroSkip(pos: Long, dur: Long) {
+        if (outroSkipSec <= 0 || outroFired || isLiveMode) return
+        if (pos >= dur - outroSkipSec * 1000L) {
+            outroFired = true
+            val hasNext = currentEpisodeIndex + 1 < allEpisodes.size
+            showSkipButton(if (hasNext) "下一集" else "跳过片尾") {
+                hideSkipButton()
+                if (hasNext) switchEpisode(1) else player?.seekTo(dur)
+            }
+        }
+    }
+
+    private fun showSkipButton(label: String, action: () -> Unit) {
+        skipAction = action
+        skipCountdown = 5
+        skipBtn.text = "$label $skipCountdown"
+        skipBtn.visibility = View.VISIBLE
+        handler.removeCallbacks(skipRunnable)
+        // 倒计时每秒刷新，归零自动跳过
+        handler.post(object : Runnable {
+            override fun run() {
+                skipCountdown--
+                if (skipCountdown <= 0) {
+                    hideSkipButton()
+                    skipAction?.invoke()
+                    skipAction = null
+                } else if (skipBtn.visibility == View.VISIBLE) {
+                    skipBtn.text = "$label $skipCountdown"
+                    handler.postDelayed(this, 1000)
+                }
+            }
+        })
+    }
+
+    private fun hideSkipButton() {
+        handler.removeCallbacks(skipRunnable)
+        skipBtn.visibility = View.GONE
+    }
+
+    private fun fmtSec(sec: Int): String {
+        return if (sec >= 60) "${sec / 60} 分 ${sec % 60} 秒" else "$sec 秒"
     }
 
     private fun togglePlay() {

@@ -265,6 +265,10 @@ class SettingsActivity : AppCompatActivity() {
             Feedback.refresh(this)
         })
 
+        // 片头 / 片尾跳过
+        root.addView(skipRow("片头跳过", configStore.introSkipSec()) { v -> configStore.setIntroSkipSec(v) })
+        root.addView(skipRow("片尾跳过", configStore.outroSkipSec()) { v -> configStore.setOutroSkipSec(v) })
+
         // 隐私政策入口
         root.addView(TextView(this).apply {
             text = "隐私政策"
@@ -741,9 +745,48 @@ class SettingsActivity : AppCompatActivity() {
 
     // ========== UI 工具 ==========
 
-    /** 一行「文字 + 右侧开关」 */
-    private fun switchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit): LinearLayout {
+    /** 片头/片尾跳过档位：0/15/30/60/90 秒 */
+    private val skipOptions = listOf(0, 15, 30, 60, 90)
+
+    private fun skipLabel(sec: Int): String = if (sec <= 0) "关" else "$sec 秒"
+
+    /** 一行「文字 + 当前档位」，点击弹档位选择 */
+    private fun skipRow(label: String, current: Int, onPick: (Int) -> Unit): LinearLayout {
         val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, dp(10))
+        }
+        row.addView(TextView(this).apply {
+            text = label
+            textSize = 16f
+            setTextColor(Color.WHITE)
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val value = TextView(this).apply {
+            text = skipLabel(current)
+            textSize = 15f
+            setTextColor(Color.parseColor("#FFEB3B"))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        row.addView(value)
+
+        row.setOnClickListener {
+            val labels = skipOptions.map { skipLabel(it) }.toTypedArray()
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(label)
+                .setItems(labels) { _, which ->
+                    val v = skipOptions[which]
+                    onPick(v)
+                    value.text = skipLabel(v)
+                }
+                .show()
+        }
+        return row
+    }
+
+    /** 一行「文字 + 右侧开关」 */
+    private fun switchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit): LinearLayout {        val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(10), 0, dp(10))
