@@ -60,7 +60,7 @@ object WebdavClient {
      * 解析文件名 → 影视元信息（SxxExx / 第xx集 / Exx / 末尾数字 / 年份 / 纯数字）。
      * 与鸿蒙 Webdav.parse 完全一致。
      */
-    fun parseName(name: String): Parsed {
+    private fun parseName(name: String): Parsed {
         val p = Parsed()
         var base = name
         val dot = base.lastIndexOf('.')
