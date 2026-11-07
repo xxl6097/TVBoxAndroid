@@ -46,6 +46,9 @@ class LiveActivity : AppCompatActivity() {
     private val dead = mutableSetOf<String>()
     private var probing = false
 
+    /** 当前目录展开后的全部频道（播放页「上一台/下一台」按这个顺序换台） */
+    private val currentChannels = mutableListOf<Channel>()
+
     companion object {
         fun start(context: Context) {
             context.startActivity(Intent(context, LiveActivity::class.java))
@@ -95,7 +98,7 @@ class LiveActivity : AppCompatActivity() {
         topBar.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
         topBar.addView(actionChip("检测") { probeCurrentGroup() })
-        topBar.addView(actionChip("换源") { showSourcePicker() })
+        topBar.addView(actionChip("测速") { rankSources() })
         topBar.addView(actionChip("刷新") { loadSource() })
         rootLayout.addView(topBar)
 
@@ -297,6 +300,8 @@ class LiveActivity : AppCompatActivity() {
         val node = current ?: return
         val channels = mutableListOf<Channel>()
         LiveClient.collect(node, channels)
+        currentChannels.clear()
+        currentChannels.addAll(channels)
         gridLayout.removeAllViews()
 
         if (channels.isEmpty()) {
@@ -361,8 +366,12 @@ class LiveActivity : AppCompatActivity() {
     }
 
     private fun play(ch: Channel) {
-        val urls = if (ch.urls.isEmpty()) mutableListOf(ch.url) else ch.urls
-        val eps = urls.mapIndexed { i, u -> Episode("线路${i + 1}", u) }
+        // 把「当前目录全部频道」都塞进播放列表，播放页上一台/下一台=换台，
+        // 失效自动顺延到下一台。每个频道的主线路作为该「集」的地址。
+        val eps = currentChannels.map { c ->
+            Episode(c.name, if (c.urls.isEmpty()) c.url else c.urls[0])
+        }
+        val idx = currentChannels.indexOfFirst { it === ch }.takeIf { it >= 0 } ?: 0
 
         PlayerActivity.start(
             context = this,
@@ -371,7 +380,7 @@ class LiveActivity : AppCompatActivity() {
             vodName = ch.name,
             lineName = "直播",
             allEpisodes = eps,
-            episodeIndex = 0,
+            episodeIndex = idx,
             isDirect = true,
             siteApi = "",
             isLive = true
@@ -425,26 +434,148 @@ class LiveActivity : AppCompatActivity() {
         }
     }
 
-    // ============ 换源 ============
+    // ============ 测速排行 ============
 
-    private fun showSourcePicker() {
-        val lives = configStore.getSubLives()
-        val currentUrl = configStore.getLiveSourceUrl()
+    /** 候选源：订阅下发的 lives + 当前自定义源 */
+    private fun speedTargets(): List<Pair<String, String>> {
+        val out = mutableListOf<Pair<String, String>>()
+        configStore.getSubLives().forEach { out.add(it.name to it.url) }
+        val cur = configStore.getLiveSourceUrl()
+        if (!cur.isNullOrEmpty() && out.none { it.second == cur }) {
+            out.add("当前自定义源" to cur)
+        }
+        return out
+    }
 
-        if (lives.isEmpty()) {
-            Toast.makeText(this, "订阅里没有直播源，请到设置页手动填写", Toast.LENGTH_SHORT).show()
+    data class LiveRank(val name: String, val url: String, val ok: Boolean, val ms: Long,
+                        val count: Int, val alive: Int, val sampled: Int) {
+        val score: Int
+            get() = if (!ok) 0 else {
+                val avail = if (sampled > 0) alive * 100 / sampled else 0
+                val speed = (100 - ms / 50).coerceAtLeast(0).toInt()
+                (avail * 0.7 + speed * 0.3).toInt().coerceIn(0, 100)
+            }
+        val state: String
+            get() = when {
+                !ok -> "拉取失败"
+                count == 0 -> "列表为空"
+                else -> "$ms ms · $count 台 · 可播 $alive/$sampled"
+            }
+    }
+
+    private fun rankSources() {
+        val targets = speedTargets()
+        if (targets.isEmpty()) {
+            Toast.makeText(this, "没有直播源可测，请到设置页填写", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val names = lives.map { if (it.url == currentUrl) "✓ ${it.name}" else it.name }.toTypedArray()
-        android.app.AlertDialog.Builder(this)
-            .setTitle("选择直播源")
-            .setItems(names) { _, which ->
-                val picked = lives[which]
-                configStore.saveLiveSourceUrl(picked.url)
-                Toast.makeText(this, "已切换：${picked.name}", Toast.LENGTH_SHORT).show()
-                loadSource()
+        Toast.makeText(this, "开始测速 ${targets.size} 个直播源…", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val results = targets.map { (name, url) -> rankOne(name, url) }
+                .sortedWith(compareByDescending<LiveRank> { it.score }.thenBy { -it.count }.thenBy { it.ms })
+            showRankDialog(results)
+        }
+    }
+
+    private suspend fun rankOne(name: String, url: String): LiveRank {
+        val t0 = System.currentTimeMillis()
+        val groups = try {
+            LiveClient.load(url)
+        } catch (e: Exception) {
+            return LiveRank(name, url, false, -1, 0, 0, 0)
+        }
+        val ms = System.currentTimeMillis() - t0
+        var count = 0
+        groups.forEach { count += it.channels.size }
+        if (count == 0) return LiveRank(name, url, true, ms, 0, 0, 0)
+
+        // 抽样 3 个频道实测可播率（不同分组各取第一个，再补组内第 2、3 个）
+        val samples = mutableListOf<String>()
+        for (g in groups) {
+            if (samples.size >= 3) break
+            val chs = g.channels
+            if (chs.isNotEmpty()) samples.add(if (chs[0].urls.isNotEmpty()) chs[0].urls[0] else chs[0].url)
+        }
+        var k = 1
+        while (samples.size < 3) {
+            var added = false
+            for (g in groups) {
+                if (samples.size >= 3) break
+                val chs = g.channels
+                if (k < chs.size) {
+                    val u = if (chs[k].urls.isNotEmpty()) chs[k].urls[0] else chs[k].url
+                    if (!samples.contains(u)) { samples.add(u); added = true }
+                }
             }
+            if (!added) break
+            k++
+        }
+        var alive = 0
+        for (u in samples) {
+            if (LiveClient.probe(u, 3000)) alive++
+        }
+        return LiveRank(name, url, true, ms, count, alive, samples.size)
+    }
+
+    private fun showRankDialog(results: List<LiveRank>) {
+        val currentUrl = configStore.getLiveSourceUrl()
+        val list = ScrollView(this)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+
+        results.forEachIndexed { i, r ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(12), dp(10), dp(12))
+                setBackgroundColor(if (r.url == currentUrl) TvUi.CARD_HI else Color.TRANSPARENT)
+            }
+            val rank = TextView(this).apply {
+                text = "${i + 1}"
+                textSize = 15f
+                setTextColor(if (i < 3) TvUi.SELECTED else TvUi.DIM)
+                gravity = Gravity.CENTER
+            }
+            row.addView(rank, LinearLayout.LayoutParams(dp(32), dp(32)))
+
+            val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            info.addView(TextView(this).apply {
+                text = r.name + (if (r.url == currentUrl) "（使用中）" else "")
+                textSize = 16f
+                setTextColor(Color.WHITE)
+            })
+            info.addView(TextView(this).apply {
+                text = r.state + "  ·  " + r.score + " 分"
+                textSize = 12f
+                setTextColor(TvUi.DIM)
+                setPadding(0, dp(2), 0, 0)
+            })
+            row.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+
+            val use = TextView(this).apply {
+                text = if (r.url == currentUrl) "使用中" else "使用"
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                setPadding(dp(14), dp(8), dp(14), dp(8))
+                setOnClickListener {
+                    configStore.saveLiveSourceUrl(r.url)
+                    Toast.makeText(this@LiveActivity, "已切到「${r.name}」，正在重新加载", Toast.LENGTH_SHORT).show()
+                    loadSource()
+                }
+            }
+            row.addView(use)
+            container.addView(row)
+        }
+
+        list.addView(container)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("直播源测速排行")
+            .setView(list)
+            .setPositiveButton("关闭", null)
             .show()
     }
 
