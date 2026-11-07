@@ -163,7 +163,7 @@ class QrServer(
 <html lang="zh-CN"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>凡人影视 · 直连播放</title>
+<title>夜帧影视 · 直连播放</title>
 <style>
   body{font-family:-apple-system,system-ui,sans-serif;background:#141218;color:#fff;margin:0;padding:20px}
   h1{font-size:20px;margin:0 0 6px}
@@ -190,7 +190,7 @@ class QrServer(
 <html lang="zh-CN"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>鸿蒙影视 · 扫码录入</title>
+<title>夜帧影视 · 扫码录入</title>
 <style>
   body{font-family:-apple-system,system-ui,sans-serif;background:#141218;color:#fff;margin:0;padding:20px}
   h1{font-size:20px;margin:0 0 6px}

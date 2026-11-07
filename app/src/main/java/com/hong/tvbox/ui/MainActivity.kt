@@ -170,7 +170,7 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(dp(48), dp(48)).also { it.marginEnd = dp(12) })
 
         bar.addView(TextView(this).apply {
-            text = "鸿蒙影视"
+            text = "夜帧影视"
             textSize = 24f
             setTextColor(Color.WHITE)
             maxLines = 1
@@ -602,7 +602,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         block.addView(TextView(this).apply {
-            text = "欢迎使用鸿蒙影视 Android TV 版"
+            text = "欢迎使用夜帧影视 Android TV 版"
             textSize = 18f
             setTextColor(Color.WHITE)
         })

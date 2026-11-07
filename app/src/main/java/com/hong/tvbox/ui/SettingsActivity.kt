@@ -304,7 +304,7 @@ class SettingsActivity : AppCompatActivity() {
             "v1.0.0"
         }
         root.addView(TextView(this).apply {
-            text = "鸿蒙影视 Android TV 版 $version"
+            text = "夜帧影视 Android TV 版 $version"
             textSize = 13f
             setTextColor(Color.parseColor("#66FFFFFF"))
             gravity = Gravity.CENTER
