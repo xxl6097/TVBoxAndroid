@@ -69,6 +69,9 @@ class PlayerActivity : AppCompatActivity() {
     // ---- 画质 ----
     private val qualityNames = arrayOf("自动", "1080P", "720P", "480P")
     private var qualityIdx = 0
+    /** 画面比例：等比留黑边 / 裁剪铺满 / 拉伸铺满 */
+    private val scaleNames = arrayOf("等比", "裁剪", "拉伸")
+    private var scaleIdx = 2
     /** 连续起播卡顿次数，达到阈值自动降档 */
     private var rebufferCount = 0
     /** 上一次卡顿的时间点，用来判断“连续”卡顿 */
@@ -102,6 +105,7 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var osdVia: TextView
     private lateinit var osdMuteBtn: Button
     private lateinit var osdQualityBtn: Button
+    private lateinit var osdScaleBtn: Button
     /** 画面正中的一次性提示（±10 秒 / 音量 / 切集），3 米外也看得清 */
     private lateinit var centerTip: TextView
 
@@ -195,6 +199,14 @@ class PlayerActivity : AppCompatActivity() {
 
         introSkipSec = configStore.introSkipSec()
         outroSkipSec = configStore.outroSkipSec()
+
+        // 恢复画质偏好（0=自动/>=1080→1080/>=720→720/>=480→480）
+        qualityIdx = when (val q = configStore.qPref()) {
+            0 -> 0
+            in 1..480 -> 3
+            in 481..720 -> 2
+            else -> 1
+        }
 
         val epUrls = intent.getStringArrayExtra(EXTRA_EP_URLS) ?: arrayOf()
         val epNames = intent.getStringArrayExtra(EXTRA_EP_NAMES) ?: arrayOf()
@@ -369,8 +381,12 @@ class PlayerActivity : AppCompatActivity() {
         controlRow.addView(osdButton("音量+") { changeVolume(0.1f) })
 
         // 画质：HLS 自适应之外，允许手动限高；弱网也会自动降一档
-        osdQualityBtn = osdButton("画质 自动") { cycleQuality() }
+        osdQualityBtn = osdButton("画质 ${qualityNames[qualityIdx]}") { cycleQuality() }
         controlRow.addView(osdQualityBtn)
+
+        // 画面比例：等比 / 裁剪 / 拉伸
+        osdScaleBtn = osdButton("比例 ${scaleNames[scaleIdx]}") { cycleScale() }
+        controlRow.addView(osdScaleBtn)
 
         osdLayout.addView(controlRow)
 
@@ -577,12 +593,34 @@ class PlayerActivity : AppCompatActivity() {
 
     // ============ 画质 ============
 
+    private fun cycleScale() {
+        scaleIdx = (scaleIdx + 1) % scaleNames.size
+        playerView.resizeMode = when (scaleIdx) {
+            0 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+            1 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+        }
+        if (this::osdScaleBtn.isInitialized) {
+            osdScaleBtn.text = "比例 ${scaleNames[scaleIdx]}"
+        }
+        showTip("画面比例：${scaleNames[scaleIdx]}")
+    }
+
     private fun cycleQuality() {
         qualityIdx = (qualityIdx + 1) % qualityNames.size
         // 用户手动选了画质，就别再让自动降档插手
         autoDowngraded = true
         rebufferCount = 0
         applyQuality()
+        // 持久化：0=自动，>0 存高度上限
+        configStore.setQPref(
+            when (qualityIdx) {
+                1 -> 1080
+                2 -> 720
+                3 -> 480
+                else -> 0
+            }
+        )
         if (this::osdQualityBtn.isInitialized) {
             osdQualityBtn.text = "画质 ${qualityNames[qualityIdx]}"
         }
