@@ -152,6 +152,15 @@ class VodBrowseActivity : AppCompatActivity() {
             setPadding(0, dp(6), 0, dp(6))
         }
         scroll.addView(gridLayout)
+        // 滚动到底自动翻下一页（对照鸿蒙 onReachEnd，替代手点「下一页」）
+        scroll.setOnScrollChangeListener { _, _, _, _, _ ->
+            if (!loading && pageCount > 1 && currentPage < pageCount &&
+                gridLayout.height > 0 &&
+                scroll.scrollY + scroll.height >= gridLayout.height - dp(300)
+            ) {
+                gotoPage(currentPage + 1)
+            }
+        }
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         // 翻页
@@ -375,15 +384,23 @@ class VodBrowseActivity : AppCompatActivity() {
                 val cms = CmsClient(s)
                 cms.setExtra(buildExtra())
 
-                // 父分类通常没有直属影片：若它下面挂着子分类，就把父 + 子一起拉取合并，
-                // 否则点「电视剧」会看到空列表（鸿蒙版同样处理）
+                // 父分类通常没有直属影片：先单独拉父分类，内容少于 8 条才聚合子分类
+                // （对齐鸿蒙两段式：只在大分类"内容少"时才合并，且最多合并 10 个子分类）
                 val children = categories.filter { it.pid.isNotEmpty() && it.pid == cat.id }
                 val result: VodPage
+                var merged = false
                 if (children.isNotEmpty()) {
-                    result = cms.listMerged(listOf(cat.id) + children.map { it.id }, 1)
-                    // 聚合只取第 1 页，关掉翻页避免语义混乱
-                    currentPage = 1
-                    pageCount = 1
+                    val direct = cms.list(cat.id, page)
+                    if (direct.items.size < 8) {
+                        result = cms.listMerged(listOf(cat.id) + children.take(10).map { it.id }, 1)
+                        merged = true
+                        currentPage = 1
+                        pageCount = 1
+                    } else {
+                        result = direct
+                        currentPage = result.page
+                        pageCount = if (result.pageCount > 0) result.pageCount else 1
+                    }
                 } else {
                     result = cms.list(cat.id, page)
                     currentPage = result.page
@@ -393,17 +410,17 @@ class VodBrowseActivity : AppCompatActivity() {
                 renderGrid(result.items)
 
                 statusView.text = when {
-                    result.items.isNotEmpty() && children.isNotEmpty() ->
-                        "「${cat.name}」聚合自 ${children.size + 1} 个分类"
-                    result.items.isEmpty() && children.isNotEmpty() ->
+                    result.items.isNotEmpty() && merged ->
+                        "「${cat.name}」自身内容较少，已连带汇总它 ${children.size} 个子分类的最新内容"
+                    result.items.isEmpty() && merged ->
                         "该分类及其 ${children.size} 个子分类都没有内容"
                     result.items.isEmpty() -> "该分类下没有内容"
                     else -> ""
                 }
 
-                pageInfo.text = if (children.isNotEmpty()) "聚合视图" else "第 $currentPage / $pageCount 页"
-                prevBtn.isEnabled = children.isEmpty() && currentPage > 1
-                nextBtn.isEnabled = children.isEmpty() && currentPage < pageCount
+                pageInfo.text = if (merged) "聚合视图" else "第 $currentPage / $pageCount 页"
+                prevBtn.isEnabled = !merged && currentPage > 1
+                nextBtn.isEnabled = !merged && currentPage < pageCount
                 scroll.scrollTo(0, 0)
             } catch (e: Exception) {
                 statusView.text = "列表加载失败：${e.message}"
@@ -424,16 +441,39 @@ class VodBrowseActivity : AppCompatActivity() {
                 setPadding(dp(4), dp(4), dp(4), dp(4))
             }
 
+            val imgBox = FrameLayout(this)
             val img = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 setBackgroundColor(Color.parseColor("#33000000"))
             }
-            card.addView(img, LinearLayout.LayoutParams(
+            imgBox.addView(img, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(196)
             ))
             if (vod.pic.isNotEmpty()) {
                 Glide.with(this).load(vod.pic).centerCrop().into(img)
             }
+
+            // 更新状态角标：右上角绿色小药丸（对照鸿蒙，压在画面上不占独立行）
+            if (vod.remark.isNotEmpty()) {
+                imgBox.addView(TextView(this).apply {
+                    text = vod.remark
+                    textSize = 11f
+                    setTextColor(Color.WHITE)
+                    setBackgroundColor(Color.parseColor("#B3177535"))
+                    setPadding(dp(7), dp(3), dp(7), dp(3))
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                }, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP or Gravity.END
+                ).also {
+                    it.topMargin = dp(7)
+                    it.rightMargin = dp(7)
+                })
+            }
+            card.addView(imgBox, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(196)
+            ))
 
             val name = TextView(this).apply {
                 text = vod.name
@@ -444,17 +484,6 @@ class VodBrowseActivity : AppCompatActivity() {
                 setPadding(0, dp(4), 0, 0)
             }
             card.addView(name)
-
-            if (vod.remark.isNotEmpty()) {
-                val remark = TextView(this).apply {
-                    text = vod.remark
-                    textSize = 11f
-                    setTextColor(Color.parseColor("#80FFFFFF"))
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
-                }
-                card.addView(remark)
-            }
 
             val rowSpec = GridLayout.spec(pos / 6, 1)
             val colSpec = GridLayout.spec(pos % 6, 1)
