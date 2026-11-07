@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.hong.tvbox.core.CmsClient
+import com.hong.tvbox.core.Pinyin
 import com.hong.tvbox.core.Site
 import com.hong.tvbox.core.Vod
 import com.hong.tvbox.data.ConfigStore
@@ -33,6 +34,8 @@ class SearchActivity : AppCompatActivity() {
     private lateinit var scrollView: ScrollView
     private lateinit var historyContainer: LinearLayout
     private lateinit var historyLabel: TextView
+    private lateinit var suggestLabel: TextView
+    private lateinit var suggestContainer: LinearLayout
 
     private var searchGen = 0
     private var isSearching = false
@@ -124,6 +127,21 @@ class SearchActivity : AppCompatActivity() {
         }
         root.addView(historyContainer)
 
+        // 猜你想搜：拼音首字母 / T9 数字联想
+        suggestLabel = TextView(this).apply {
+            text = "猜你想搜"
+            textSize = 18f
+            setTextColor(Color.parseColor("#B3FFFFFF"))
+            visibility = View.GONE
+        }
+        root.addView(suggestLabel)
+
+        suggestContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        root.addView(suggestContainer)
+
         // 结果区
         scrollView = ScrollView(this)
         resultsContainer = LinearLayout(this).apply {
@@ -139,10 +157,100 @@ class SearchActivity : AppCompatActivity() {
         searchEditText.addTextChangedListener(object : android.text.TextWatcher {
             override fun afterTextChanged(s: android.text.Editable?) {
                 clearTextBtn.visibility = if (s.isNullOrEmpty()) View.GONE else View.VISIBLE
+                refreshSuggestions(s?.toString().orEmpty())
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
+    }
+
+    // ========== 猜你想搜（拼音首字母 / T9 数字联想） ==========
+
+    /** 候选池：搜索历史 + 首页 feed 片名，去重 */
+    private fun buildPool(): List<String> {
+        val seen = LinkedHashSet<String>()
+        configStore.getKeywords().forEach { seen.add(it) }
+        configStore.getFeed().forEach { seen.add(it.name) }
+        return seen.toList()
+    }
+
+    private fun refreshSuggestions(input: String) {
+        // 搜索中/有结果时不打扰
+        if (isSearching) return
+        val pool = buildPool()
+        val kw = input.trim()
+
+        if (kw.isEmpty()) {
+            suggestLabel.visibility = View.GONE
+            suggestContainer.visibility = View.GONE
+            return
+        }
+
+        val matched = mutableListOf<Pair<String, String>>()
+        for (name in pool) {
+            if (matched.size >= 12) break
+            val hint = hintLabel(name, kw)
+            if (hint != null) matched.add(name to hint)
+        }
+        if (matched.isEmpty()) {
+            suggestLabel.visibility = View.GONE
+            suggestContainer.visibility = View.GONE
+            return
+        }
+
+        suggestLabel.visibility = View.VISIBLE
+        suggestContainer.visibility = View.VISIBLE
+        suggestContainer.removeAllViews()
+        matched.forEach { (name, hint) ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setOnClickListener {
+                    searchEditText.setText(name)
+                    searchEditText.setSelection(name.length)
+                    doSearch()
+                }
+                onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1f)
+            }
+            row.addView(TextView(this).apply {
+                text = name
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(TextView(this).apply {
+                text = hint
+                textSize = 13f
+                setTextColor(Color.parseColor("#FFEB3B"))
+                setPadding(dp(10), 0, dp(4), 0)
+            })
+            suggestContainer.addView(row)
+        }
+    }
+
+    /**
+     * 判断 name 是否命中输入，命中返回提示（缩写或 T9 数字），否则返回 null。
+     * 命中优先级：中文包含 → 拼音缩写前缀 → T9 数字前缀。
+     */
+    private fun hintLabel(name: String, input: String): String? {
+        val kw = input.lowercase()
+        if (name.contains(input)) return input
+        if (name.contains(kw)) return kw
+
+        val abbrs = Pinyin.abbrsOf(name)
+        for (a in abbrs) {
+            if (a.startsWith(kw)) return a
+        }
+        // T9：纯数字输入
+        if (input.all { it.isDigit() }) {
+            for (a in abbrs) {
+                val t9 = Pinyin.abbrToT9(a)
+                if (t9.startsWith(input)) return t9
+            }
+        }
+        return null
     }
 
     private fun doSearch() {
