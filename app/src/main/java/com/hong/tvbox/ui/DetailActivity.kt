@@ -103,7 +103,7 @@ class DetailActivity : AppCompatActivity() {
 
     private fun buildUI() {
         val root = ScrollView(this)
-        root.setBackgroundColor(Color.parseColor("#141218"))
+        root.setBackgroundColor(TvUi.BG)
         scrollView = root
 
         val container = LinearLayout(this).apply {

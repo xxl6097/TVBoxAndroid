@@ -91,7 +91,7 @@ class LiveActivity : AppCompatActivity() {
 
         titleView = TextView(this).apply {
             text = "直播"
-            textSize = 20f
+            textSize = 22f
             setTextColor(Color.WHITE)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END

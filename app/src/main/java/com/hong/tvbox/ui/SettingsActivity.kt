@@ -140,7 +140,7 @@ class SettingsActivity : AppCompatActivity() {
 
         bar.addView(TextView(this).apply {
             text = "设置"
-            textSize = 28f
+            textSize = 22f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {

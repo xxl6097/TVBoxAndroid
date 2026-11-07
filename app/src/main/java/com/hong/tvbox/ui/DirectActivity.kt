@@ -64,7 +64,7 @@ class DirectActivity : AppCompatActivity() {
 
         val title = TextView(this).apply {
             text = "直连播放"
-            textSize = 20f
+            textSize = 22f
             setTextColor(Color.WHITE)
         }
         topBar.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))

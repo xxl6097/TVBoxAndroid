@@ -171,7 +171,7 @@ class MainActivity : AppCompatActivity() {
 
         bar.addView(TextView(this).apply {
             text = "夜帧影视"
-            textSize = 24f
+            textSize = 22f
             setTextColor(Color.WHITE)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -179,7 +179,7 @@ class MainActivity : AppCompatActivity() {
 
         clockView = TextView(this).apply {
             text = "00:00:00"
-            textSize = 24f
+            textSize = 22f
             setTextColor(Color.WHITE)
         }
         bar.addView(clockView)
@@ -256,6 +256,8 @@ class MainActivity : AppCompatActivity() {
         "收藏" -> R.drawable.ic_collect
         "历史" -> R.drawable.ic_history
         "设置" -> R.drawable.ic_setting
+        "直连" -> R.drawable.ic_direct
+        "网盘" -> R.drawable.ic_webdav
         else -> R.drawable.ic_vod
     }
 

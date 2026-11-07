@@ -56,7 +56,7 @@ class SearchActivity : AppCompatActivity() {
     private fun buildUI() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#141218"))
+            setBackgroundColor(TvUi.BG)
             setPadding(dp(24), dp(24), dp(24), dp(24))
         }
 

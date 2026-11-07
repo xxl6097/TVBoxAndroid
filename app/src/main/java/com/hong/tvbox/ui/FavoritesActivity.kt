@@ -49,7 +49,7 @@ class FavoritesActivity : AppCompatActivity() {
     private fun buildUI() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#141218"))
+            setBackgroundColor(TvUi.BG)
             setPadding(dp(24), dp(20), dp(24), dp(24))
         }
 
@@ -68,7 +68,7 @@ class FavoritesActivity : AppCompatActivity() {
 
         val title = TextView(this).apply {
             text = "收藏"
-            textSize = 20f
+            textSize = 22f
             setTextColor(Color.WHITE)
         }
         topBar.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))

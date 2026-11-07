@@ -87,7 +87,7 @@ class WebdavActivity : AppCompatActivity() {
 
         titleView = TextView(this).apply {
             text = "网盘"
-            textSize = 20f
+            textSize = 22f
             setTextColor(Color.WHITE)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
