@@ -37,6 +37,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var crawlBtn: Button
     private lateinit var crawlSummary: TextView
 
+    /** 站源筛选：true=显示全部，false=仅显示可用站源 */
+    private var showAllSites = true
+
     private var qrServer: com.hong.tvbox.core.QrServer? = null
     private var qrDialog: androidx.appcompat.app.AlertDialog? = null
     private lateinit var sitesContainer: LinearLayout
@@ -221,6 +224,12 @@ class SettingsActivity : AppCompatActivity() {
         }
         speedRow.addView(enableAllBtn)
         root.addView(speedRow)
+
+        // 站源筛选：全部 / 仅可用
+        root.addView(switchRow("仅显示可用站源", !showAllSites) { onlyUsable ->
+            showAllSites = !onlyUsable
+            refreshSitesUI()
+        })
 
         sitesContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -574,7 +583,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun refreshSitesUI() {
         sitesContainer.removeAllViews()
-        val sites = configStore.getConfig()?.sites ?: return
+        val all = configStore.getConfig()?.sites ?: return
+        val sites = if (showAllSites) all else all.filter { it.usable }
 
         if (sites.isEmpty()) {
             val emptyView = TextView(this).apply {
