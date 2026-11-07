@@ -129,15 +129,15 @@ class DirectActivity : AppCompatActivity() {
             }
 
             // 两行：标题（解析文件名）+ 完整地址灰字
-            val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            text.addView(TextView(this).apply {
+            val textBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            textBox.addView(TextView(this).apply {
                 text = titleOf(url)
                 textSize = 15f
                 setTextColor(Color.WHITE)
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             })
-            text.addView(TextView(this).apply {
+            textBox.addView(TextView(this).apply {
                 text = url
                 textSize = 12f
                 setTextColor(TvUi.DIM)
@@ -145,7 +145,7 @@ class DirectActivity : AppCompatActivity() {
                 ellipsize = TextUtils.TruncateAt.MIDDLE
                 setPadding(0, dp(3), 0, 0)
             })
-            row.addView(text, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(textBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
             val play = TextView(this).apply {
                 text = "播放"
