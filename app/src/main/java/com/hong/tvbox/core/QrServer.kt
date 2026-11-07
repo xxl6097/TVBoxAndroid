@@ -21,6 +21,7 @@ import java.net.URLDecoder
  */
 class QrServer(
     private val port: Int = 8788,
+    private val mode: String = "config",   // config=三框录入；play=单框直连播放
     private val onSubmit: (Map<String, String>) -> Unit
 ) {
     @Volatile
@@ -155,7 +156,36 @@ class QrServer(
         out.flush()
     }
 
-    private fun formPage(): String = """
+    private fun formPage(): String {
+        if (mode == "play") {
+            return """
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>凡人影视 · 直连播放</title>
+<style>
+  body{font-family:-apple-system,system-ui,sans-serif;background:#141218;color:#fff;margin:0;padding:20px}
+  h1{font-size:20px;margin:0 0 6px}
+  p.tip{color:#b3ffffff;font-size:13px;margin:0 0 18px}
+  label{display:block;font-size:14px;color:#ffeb3b;margin:18px 0 6px}
+  input{width:100%;box-sizing:border-box;background:#1c1b1f;border:1px solid #333;
+    border-radius:10px;color:#fff;padding:12px;font-size:15px}
+  button{margin-top:22px;width:100%;padding:14px;border:0;border-radius:12px;
+    background:#fff;color:#141218;font-size:16px;font-weight:600}
+</style></head>
+<body>
+  <h1>直连播放</h1>
+  <p class="tip">把 m3u8 / mp4 地址贴进来，点「播放」，电视端立即开播。</p>
+  <form method="post" action="/">
+    <label>视频地址</label>
+    <input name="url" placeholder="https://.../movie.m3u8">
+    <button type="submit">播放</button>
+  </form>
+</body></html>
+""".trimIndent()
+        }
+        return """
 <!DOCTYPE html>
 <html lang="zh-CN"><head>
 <meta charset="utf-8">
@@ -191,8 +221,29 @@ class QrServer(
   <p class="hint">只写本机配置，不上传任何服务器。离开设置页后本页面立即失效。</p>
 </body></html>
 """.trimIndent()
+    }
 
     private fun successPage(form: Map<String, String>): String {
+        if (mode == "play") {
+            return """
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>已播放</title>
+<style>
+  body{font-family:-apple-system,system-ui,sans-serif;background:#141218;color:#fff;
+    margin:0;padding:32px;text-align:center}
+  h1{font-size:22px}
+  p{color:#b3ffffff}
+  a{color:#ffeb3b}
+</style></head>
+<body>
+  <h1>✅ 电视端已开始播放</h1>
+  <p><a href="/">再播一个</a></p>
+</body></html>
+""".trimIndent()
+        }
         val saved = buildString {
             if (form.containsKey("subscribe")) append("<li>订阅链接</li>")
             if (form.containsKey("live")) append("<li>直播源</li>")

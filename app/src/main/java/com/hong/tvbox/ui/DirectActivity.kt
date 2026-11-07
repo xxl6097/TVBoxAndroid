@@ -11,6 +11,8 @@ import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.hong.tvbox.core.Episode
+import com.hong.tvbox.core.QrCode
+import com.hong.tvbox.core.QrServer
 import com.hong.tvbox.data.ConfigStore
 
 /**
@@ -23,6 +25,8 @@ class DirectActivity : AppCompatActivity() {
     private lateinit var urlInput: EditText
     private lateinit var historyList: LinearLayout
     private lateinit var statusView: TextView
+    private var qrServer: QrServer? = null
+    private var qrDialog: androidx.appcompat.app.AlertDialog? = null
 
     companion object {
         fun start(context: Context) {
@@ -92,6 +96,14 @@ class DirectActivity : AppCompatActivity() {
             setOnClickListener { playCurrent() }
         }
         inputRow.addView(playBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.marginStart = dp(12) })
+
+        val scanBtn = Button(this).apply {
+            text = "扫码"
+            setOnClickListener { showScanDialog() }
+        }
+        inputRow.addView(scanBtn, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).also { it.marginStart = dp(12) })
         root.addView(inputRow)
@@ -210,6 +222,66 @@ class DirectActivity : AppCompatActivity() {
         } catch (e: Exception) {
             s
         }
+    }
+
+    /** 手机扫码直连：起局域网服务 + 二维码，提交即开播，离开即停服 */
+    private fun showScanDialog() {
+        val server = qrServer ?: QrServer(8788, "play") { form ->
+            runOnUiThread {
+                val url = form["url"] ?: return@runOnUiThread
+                urlInput.setText(url)
+                playCurrent()
+            }
+        }.also { qrServer = it }
+
+        if (!server.start()) {
+            Toast.makeText(this, "端口 8788 被占用，无法启动扫码服务", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val url = server.url()
+        val qr = QrCode.encode(url, 520)
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20), dp(16), dp(20), dp(8))
+        }
+        if (qr != null) {
+            box.addView(ImageView(this).apply {
+                setImageBitmap(qr)
+                layoutParams = LinearLayout.LayoutParams(dp(260), dp(260))
+            })
+        }
+        box.addView(TextView(this).apply {
+            text = url
+            textSize = 13f
+            setTextColor(TvUi.SUB)
+            setPadding(0, dp(10), 0, 0)
+        })
+        box.addView(TextView(this).apply {
+            text = "手机连同一 Wi-Fi 扫码，粘贴视频地址即开播"
+            textSize = 13f
+            setTextColor(TvUi.DIM)
+            setPadding(0, dp(6), 0, 0)
+        })
+
+        qrDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("扫码直连播放")
+            .setView(box)
+            .setPositiveButton("关闭") { _, _ -> stopQr() }
+            .setOnDismissListener { stopQr() }
+            .show()
+    }
+
+    private fun stopQr() {
+        qrServer?.stop()
+        qrServer = null
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopQr()
     }
 
     private fun dp(value: Int): Int {
