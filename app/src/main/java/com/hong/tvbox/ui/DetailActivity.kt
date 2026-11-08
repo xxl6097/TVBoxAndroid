@@ -145,6 +145,20 @@ class DetailActivity : AppCompatActivity() {
         }
         favBtn.onTvFocus(scale = 1f)
         topBar.addView(favBtn)
+
+        // 分享按钮（复制片名+站源到剪贴板）
+        val shareBtn = TextView(this).apply {
+            text = "分享"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setBackgroundColor(Color.parseColor("#33000000"))
+            setOnClickListener { shareVod() }
+        }
+        shareBtn.onTvFocus(scale = 1f)
+        topBar.addView(shareBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.marginStart = dp(8) })
         container.addView(topBar)
 
         // 加载中
@@ -479,10 +493,15 @@ class DetailActivity : AppCompatActivity() {
         order.forEachIndexed { pos, i ->
             val ep = eps[i]
             val isSeen = i == seenEpisodeIndex
+            val isBeforeSeen = seenEpisodeIndex >= 0 && i < seenEpisodeIndex
             val btn = TextView(this).apply {
-                text = ep.name
+                text = if (isBeforeSeen) "✓ ${ep.name}" else ep.name
                 textSize = 15f
-                setTextColor(if (isSeen) Color.parseColor("#FFEB3B") else Color.WHITE)
+                setTextColor(when {
+                    isSeen -> Color.parseColor("#FFEB3B")
+                    isBeforeSeen -> Color.parseColor("#80FFFFFF")
+                    else -> Color.WHITE
+                })
                 gravity = android.view.Gravity.CENTER
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -532,6 +551,13 @@ class DetailActivity : AppCompatActivity() {
 
         favBtn.text = if (isFavorite) "★ 已收藏" else "☆ 收藏"
         favBtn.setTextColor(if (isFavorite) Color.parseColor("#FFEB3B") else Color.WHITE)
+    }
+
+    private fun shareVod() {
+        val text = "【${vod.name}】${vod.typeName} ${vod.year} ${vod.area}\n来源：${vod.siteName}"
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("夜帧影视", text))
+        Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
     }
 
     private fun play(ep: Episode, index: Int) {

@@ -43,6 +43,8 @@ class ConfigStore(context: Context) {
         private const val KEY_INTRO_SKIP = "intro_skip"
         private const val KEY_OUTRO_SKIP = "outro_skip"
         private const val KEY_GUIDE_DONE = "guide_done"
+        private const val KEY_PLAY_SPEED = "play_speed"
+        private const val KEY_AUTO_NEXT = "auto_next"
     }
     
     /**
@@ -218,6 +220,14 @@ class ConfigStore(context: Context) {
     /** 首启引导是否已看过 */
     fun guideDone(): Boolean = prefs.getBoolean(KEY_GUIDE_DONE, false)
     fun setGuideDone() = prefs.edit().putBoolean(KEY_GUIDE_DONE, true).apply()
+
+    /** 播放速度偏好（下标，对应 PlayerActivity.speedNames） */
+    fun playSpeedPref(): Int = prefs.getInt(KEY_PLAY_SPEED, 0)
+    fun setPlaySpeedPref(idx: Int) = prefs.edit().putInt(KEY_PLAY_SPEED, idx).apply()
+
+    /** 是否自动播放下一集 */
+    fun autoPlayNext(): Boolean = prefs.getBoolean(KEY_AUTO_NEXT, true)
+    fun setAutoPlayNext(v: Boolean) = prefs.edit().putBoolean(KEY_AUTO_NEXT, v).apply()
 
     // ---------- 直播分组记忆 ----------
     /** 上次停留的直播分组路径（用不可见字符分隔，分组名里可能有 / ） */

@@ -97,3 +97,22 @@ fun EditText.tvInputStyle() {
     }
     setPadding((14 * d).toInt(), (10 * d).toInt(), (14 * d).toInt(), (10 * d).toInt())
 }
+
+/**
+ * 页面初始焦点设置：首个可聚焦子 View 获取焦点（遥控器进入页面后立即可用方向键）。
+ */
+fun android.view.ViewGroup.requestFirstChildFocus() {
+    post {
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            if (child.isFocusable && child.visibility == android.view.View.VISIBLE) {
+                child.requestFocus()
+                return@post
+            }
+            if (child is android.view.ViewGroup) {
+                child.requestFirstChildFocus()
+                if (child.hasFocus()) return@post
+            }
+        }
+    }
+}

@@ -253,6 +253,13 @@ class SearchActivity : AppCompatActivity() {
         return null
     }
 
+    /** 从搜索结果集合推断内容类型标签 */
+    private fun inferTypeTag(items: List<Vod>): String {
+        if (items.isEmpty()) return ""
+        val types = items.mapNotNull { it.typeName.ifEmpty { null } }
+        return types.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: ""
+    }
+
     private fun doSearch() {
         val keyword = searchEditText.text.toString().trim()
         if (keyword.isEmpty()) {
@@ -332,21 +339,35 @@ class SearchActivity : AppCompatActivity() {
         // 站源名 + 结果数
         val headerRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
         val siteName = TextView(this).apply {
             text = site.name
-            textSize = 18f
+            textSize = 17f
             setTextColor(Color.WHITE)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
         headerRow.addView(siteName)
         val countText = TextView(this).apply {
-            text = "${items.size} 个结果"
+            text = " · ${items.size} 个结果"
             textSize = 13f
             setTextColor(Color.parseColor("#80FFFFFF"))
-            setPadding(dp(12), 0, 0, 0)
         }
         headerRow.addView(countText)
+        // 类型标签（电影 / 剧集 / 综艺等，从结果推断）
+        val typeTag = inferTypeTag(items)
+        if (typeTag.isNotEmpty()) {
+            headerRow.addView(TextView(this).apply {
+                text = typeTag
+                textSize = 11f
+                setTextColor(Color.parseColor("#FFEB3B"))
+                setBackgroundColor(Color.parseColor("#33FFEB3B"))
+                setPadding(dp(8), dp(2), dp(8), dp(2))
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.marginStart = dp(8) })
+        }
         groupLayout.addView(headerRow)
 
         // 横向滑动结果列表
@@ -365,6 +386,12 @@ class SearchActivity : AppCompatActivity() {
             val img = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 setBackgroundColor(Color.parseColor("#33000000"))
+                clipToOutline = true
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                        outline.setRoundRect(0, 0, view.width, view.height, (resources.displayMetrics.density * 4 + 0.5f).toInt().toFloat())
+                    }
+                }
             }
             card.addView(img, LinearLayout.LayoutParams(dp(104), dp(146)))
 
@@ -400,57 +427,111 @@ class SearchActivity : AppCompatActivity() {
 
     private fun showHistory() {
         val kws = getKeywords()
-        if (kws.isEmpty()) return
+        if (kws.isEmpty()) {
+            // 没有历史时显示热门推荐词
+            showHotKeywords()
+            return
+        }
 
         historyLabel.visibility = View.VISIBLE
         historyContainer.visibility = View.VISIBLE
         historyContainer.removeAllViews()
 
-        // 清空按钮
-        val clearRow = LinearLayout(this).apply {
+        // 标题行：最近搜过 + 清空按钮
+        val headerRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        headerRow.addView(historyLabel.also {
+            it.text = "最近搜过"
+            it.textSize = 16f
+            it.setTextColor(Color.WHITE)
+            it.setTypeface(it.typeface, android.graphics.Typeface.BOLD)
+            it.setPadding(0, 0, 0, 0)
+            it.visibility = View.VISIBLE
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
         val clearBtn = TextView(this).apply {
-            text = "清空记录"
-            textSize = 14f
+            text = "清空"
+            textSize = 13f
             setTextColor(Color.parseColor("#80FFFFFF"))
-            setPadding(dp(10), dp(6), dp(10), dp(6))
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            setBackgroundColor(Color.parseColor("#22FFFFFF"))
             setOnClickListener {
                 clearKeywords()
                 showHistory()
                 Toast.makeText(this@SearchActivity, "已清空搜索记录", Toast.LENGTH_SHORT).show()
             }
         }
-        clearRow.addView(clearBtn)
-        historyContainer.addView(clearRow)
+        historyContainer.addView(headerRow)
+        historyContainer.addView(clearBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.topMargin = dp(6); it.bottomMargin = dp(10) })
 
-        // 关键词列表
-        val kwRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        val kwContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
+        // 关键词胶囊
+        val kwContainer = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         kws.forEach { kw ->
             val chip = TextView(this).apply {
                 text = kw
-                textSize = 15f
+                textSize = 14f
                 setTextColor(Color.WHITE)
-                setBackgroundColor(Color.parseColor("#33000000"))
-                setPadding(dp(14), dp(8), dp(14), dp(8))
+                setBackgroundColor(Color.parseColor("#44FFFFFF"))
+                setPadding(dp(16), dp(8), dp(16), dp(8))
                 setOnClickListener {
                     searchEditText.setText(kw)
                     doSearch()
                 }
+                onTvFocus(normalColor = Color.parseColor("#44FFFFFF"), focusColor = Color.parseColor("#88FFFFFF"), scale = 1.05f)
             }
             kwContainer.addView(chip, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, dp(40)
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(38)
             ).also { it.marginEnd = dp(8) })
         }
-        val kwScroll = HorizontalScrollView(this)
+        val kwScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
         kwScroll.addView(kwContainer)
         historyContainer.addView(kwScroll)
+        historyContainer.addView(View(this).apply { setBackgroundColor(Color.parseColor("#22FFFFFF")) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = dp(12) })
+
+        // 底部加热门推荐
+        showHotKeywords()
+    }
+
+    private val hotKeywords = listOf("电影", "电视剧", "综艺", "动漫", "纪录片", "短剧", "4K", "国产", "日韩")
+
+    private fun showHotKeywords() {
+        if (!this::historyContainer.isInitialized) return
+        val hotLabel = TextView(this).apply {
+            text = "热门搜索"
+            textSize = 14f
+            setTextColor(Color.parseColor("#80FFFFFF"))
+            setPadding(0, dp(14), 0, dp(8))
+        }
+        historyContainer.addView(hotLabel)
+        historyContainer.visibility = View.VISIBLE
+
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        hotKeywords.forEach { kw ->
+            val chip = TextView(this).apply {
+                text = kw
+                textSize = 13f
+                setTextColor(Color.parseColor("#FFEB3B"))
+                setBackgroundColor(Color.parseColor("#33FFEB3B"))
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+                setOnClickListener {
+                    searchEditText.setText(kw)
+                    doSearch()
+                }
+                onTvFocus(normalColor = Color.parseColor("#33FFEB3B"), focusColor = Color.parseColor("#66FFEB3B"), scale = 1.05f)
+            }
+            row.addView(chip, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(34)
+            ).also { it.marginEnd = dp(8) })
+        }
+        val s = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        s.addView(row)
+        historyContainer.addView(s)
     }
 
     // 搜索历史统一放 ConfigStore，和配置/历史/收藏同一处，避免多套 prefs 分散

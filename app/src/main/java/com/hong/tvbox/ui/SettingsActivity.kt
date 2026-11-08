@@ -100,7 +100,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         val navDefs = listOf(
             "source" to "播放源", "update" to "内容更新", "webdav" to "网盘",
-            "sites" to "站源", "data" to "数据", "about" to "关于"
+            "sites" to "站源", "play" to "播放偏好", "data" to "数据", "about" to "关于"
         )
         navDefs.forEach { (key, label) -> nav.addView(navItem(label, key)) }
         body.addView(nav, LinearLayout.LayoutParams(dp(224), ViewGroup.LayoutParams.MATCH_PARENT))
@@ -215,7 +215,8 @@ class SettingsActivity : AppCompatActivity() {
             "update" -> contentContainer.addView(sectionUpdate())
             "webdav" -> contentContainer.addView(sectionWebdav())
             "sites" -> contentContainer.addView(sectionSites())
-            "data" -> contentContainer.addView(sectionData())
+            "play"  -> contentContainer.addView(sectionPlay())
+            "data"  -> contentContainer.addView(sectionData())
             "about" -> contentContainer.addView(sectionAbout())
         }
     }
@@ -463,6 +464,77 @@ class SettingsActivity : AppCompatActivity() {
         }
         return row
     }
+
+    // ==================== 分组：播放偏好 ====================
+
+    private fun sectionPlay(): View {
+        val speedLabels = arrayOf("1.0x 正常", "1.25x", "1.5x", "2.0x 快进", "0.5x 慢放", "0.75x")
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(groupLabel("播放偏好"))
+        val card = cardGroup()
+
+        // 自动播下一集
+        card.addView(sRow("自动播下一集",
+            if (configStore.autoPlayNext()) "开" else "关") {
+            val next = !configStore.autoPlayNext()
+            configStore.setAutoPlayNext(next)
+            switchNav("play")
+        })
+        card.addView(sDiv())
+
+        // 默认播放速度
+        val curSpeed = configStore.playSpeedPref().coerceIn(0, speedLabels.size - 1)
+        card.addView(sRow("默认速度", speedLabels[curSpeed], arrow = true) {
+            val names = speedLabels.toTypedArray()
+            android.app.AlertDialog.Builder(this)
+                .setTitle("默认播放速度")
+                .setItems(names) { _, which ->
+                    configStore.setPlaySpeedPref(which)
+                    switchNav("play")
+                }
+                .show()
+        })
+        card.addView(sDiv())
+
+        // 默认画质
+        val qualityLabels = arrayOf("自动（推荐）", "1080P", "720P", "480P")
+        val curQ = when (configStore.qPref()) {
+            0 -> 0; in 1..480 -> 3; in 481..720 -> 2; else -> 1
+        }
+        card.addView(sRow("默认画质", qualityLabels[curQ], arrow = true) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("默认画质")
+                .setItems(qualityLabels) { _, which ->
+                    configStore.setQPref(when (which) { 1 -> 1080; 2 -> 720; 3 -> 480; else -> 0 })
+                    switchNav("play")
+                }
+                .show()
+        })
+        card.addView(sDiv())
+
+        // 片头快进（秒数）
+        card.addView(sRow("跳过片头", fmtSkipSec(configStore.introSkipSec()), arrow = true) {
+            showInputDialog("跳过片头（秒）", "每集开头自动快进 N 秒，0=不跳", configStore.introSkipSec().toString()) { v ->
+                configStore.setIntroSkipSec(v.trim().toIntOrNull()?.coerceAtLeast(0) ?: 0)
+                switchNav("play")
+            }
+        })
+        card.addView(sDiv())
+
+        // 片尾快进（秒数）
+        card.addView(sRow("跳过片尾", fmtSkipSec(configStore.outroSkipSec()), arrow = true) {
+            showInputDialog("跳过片尾（秒）", "结尾前 N 秒弹「下一集」，0=不跳", configStore.outroSkipSec().toString()) { v ->
+                configStore.setOutroSkipSec(v.trim().toIntOrNull()?.coerceAtLeast(0) ?: 0)
+                switchNav("play")
+            }
+        })
+
+        col.addView(card)
+        return col
+    }
+
+    private fun fmtSkipSec(sec: Int): String =
+        if (sec <= 0) "不跳过" else "${sec} 秒"
 
     // ==================== 分组：数据 ====================
 
