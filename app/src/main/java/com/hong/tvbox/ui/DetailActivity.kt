@@ -178,6 +178,13 @@ class DetailActivity : AppCompatActivity() {
         posterView = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(Color.parseColor("#33000000"))
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, dp(6).toFloat())
+                }
+            }
+            elevation = dp(3).toFloat()
         }
         posterCol.addView(posterView, LinearLayout.LayoutParams(dp(200), dp(282)))
         siteNameView = TextView(this).apply {
@@ -194,16 +201,17 @@ class DetailActivity : AppCompatActivity() {
             setPadding(dp(24), 0, 0, 0)
         }
         metaView = TextView(this).apply {
-            textSize = 16f
-            setTextColor(Color.parseColor("#B3FFFFFF"))
+            textSize = 14f
+            setTextColor(Color.parseColor("#99FFFFFF"))
+            setLineSpacing(dp(2).toFloat(), 1f)
         }
         infoCol.addView(metaView)
 
         contentView = TextView(this).apply {
-            textSize = 16f
-            setTextColor(Color.parseColor("#B3FFFFFF"))
+            textSize = 15f
+            setTextColor(Color.parseColor("#CCFFFFFF"))
             setLineSpacing(dp(4).toFloat(), 1f)
-            setPadding(0, dp(10), 0, 0)
+            setPadding(0, dp(12), 0, 0)
             maxLines = 3
             ellipsize = android.text.TextUtils.TruncateAt.END
         }

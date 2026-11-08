@@ -231,7 +231,7 @@ class MainActivity : AppCompatActivity() {
         ).also { it.bottomMargin = dp(16) })
     }
 
-    /** 功能块：图标 38dp + 文字 15sp，1fr×8 等分，聚焦放大 1.1 */
+    /** 功能块：图标 42dp + 文字 15sp，1fr×8 等分，聚焦放大 1.1 */
     private fun funcCell(label: String, onClick: () -> Unit): View {
         val cell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -245,7 +245,7 @@ class MainActivity : AppCompatActivity() {
         cell.addView(ImageView(this).apply {
             setImageResource(funcIcon(label))
             scaleType = ImageView.ScaleType.FIT_CENTER
-        }, LinearLayout.LayoutParams(dp(38), dp(38)))
+        }, LinearLayout.LayoutParams(dp(42), dp(42)))
         cell.addView(TextView(this).apply {
             text = label
             textSize = 15f
@@ -255,7 +255,7 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).also { it.topMargin = dp(6) })
 
-        cell.layoutParams = LinearLayout.LayoutParams(0, dp(82), 1f)
+        cell.layoutParams = LinearLayout.LayoutParams(0, dp(88), 1f)
         return cell
     }
 
@@ -502,23 +502,35 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
 
+        // 海报：圆角 4dp + 轻阴影
         val img = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(Color.parseColor("#2A272E"))
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, dp(4).toFloat())
+                }
+            }
+            elevation = dp(2).toFloat()
         }
         card.addView(img, LinearLayout.LayoutParams(dp(132), dp(186)))
         if (vod.pic.isNotEmpty()) {
             Glide.with(this).load(vod.pic).centerCrop().into(img)
         }
 
-        card.addView(elided(vod.name, 13f, TvUi.TEXT).apply { setPadding(0, dp(6), 0, 0) })
+        // 标题：加粗 + 更亮的白色
+        card.addView(elided(vod.name, 13f, Color.WHITE).apply {
+            setPadding(0, dp(6), 0, 0)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        })
         if (vod.remark.isNotEmpty()) {
             card.addView(elided(vod.remark, 11f, TvUi.DIM))
         }
 
         card.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).also { it.marginEnd = dp(12) }
+        ).also { it.marginEnd = dp(16) }
 
         card.setOnClickListener {
             Feedback.tap(this@MainActivity)
