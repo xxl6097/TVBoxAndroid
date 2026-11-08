@@ -485,10 +485,9 @@ class SettingsActivity : AppCompatActivity() {
         // 默认播放速度
         val curSpeed = configStore.playSpeedPref().coerceIn(0, speedLabels.size - 1)
         card.addView(sRow("默认速度", speedLabels[curSpeed], arrow = true) {
-            val names = speedLabels.toTypedArray()
             android.app.AlertDialog.Builder(this)
                 .setTitle("默认播放速度")
-                .setItems(names) { _, which ->
+                .setItems(speedLabels) { _, which: Int ->
                     configStore.setPlaySpeedPref(which)
                     switchNav("play")
                 }
@@ -504,7 +503,7 @@ class SettingsActivity : AppCompatActivity() {
         card.addView(sRow("默认画质", qualityLabels[curQ], arrow = true) {
             android.app.AlertDialog.Builder(this)
                 .setTitle("默认画质")
-                .setItems(qualityLabels) { _, which ->
+                .setItems(qualityLabels) { _, which: Int ->
                     configStore.setQPref(when (which) { 1 -> 1080; 2 -> 720; 3 -> 480; else -> 0 })
                     switchNav("play")
                 }
