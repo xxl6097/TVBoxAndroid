@@ -115,6 +115,7 @@ class VodBrowseActivity : AppCompatActivity() {
         topBar.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
         topBar.addView(actionChip("换站") { showSitePicker() })
+        topBar.addView(actionChip("🔍") { site?.let { s -> SearchActivity.start(this, s.key) } ?: SearchActivity.start(this) })
         topBar.addView(actionChip("刷新") { refresh() })
         root.addView(topBar)
 

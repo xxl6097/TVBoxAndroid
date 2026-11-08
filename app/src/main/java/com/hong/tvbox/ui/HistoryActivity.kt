@@ -130,8 +130,34 @@ class HistoryActivity : AppCompatActivity() {
         }
         statusView.text = "共 ${list.size} 条"
 
-        list.forEach { h ->
-            listContainer.addView(buildRow(h))
+        // 按时间分为「今天 / 昨天 / 更早」三组
+        val now = System.currentTimeMillis()
+        val todayStart = java.util.Calendar.getInstance().run {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            timeInMillis
+        }
+        val yesterdayStart = todayStart - 86_400_000L
+
+        data class Group(val label: String, val items: List<com.hong.tvbox.core.History>)
+        val groups = listOf(
+            Group("今天",  list.filter { it.updatedAt >= todayStart }),
+            Group("昨天",  list.filter { it.updatedAt in yesterdayStart until todayStart }),
+            Group("更早",  list.filter { it.updatedAt < yesterdayStart })
+        ).filter { it.items.isNotEmpty() }
+
+        groups.forEach { group ->
+            // 分组标题
+            listContainer.addView(TextView(this).apply {
+                text = group.label
+                textSize = 14f
+                setTextColor(TvUi.DIM)
+                setPadding(dp(4), dp(12), 0, dp(6))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            group.items.forEach { h -> listContainer.addView(buildRow(h)) }
         }
     }
 

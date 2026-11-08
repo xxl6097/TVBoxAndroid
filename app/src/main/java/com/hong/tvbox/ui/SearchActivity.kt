@@ -41,14 +41,20 @@ class SearchActivity : AppCompatActivity() {
     private var isSearching = false
 
     companion object {
-        fun start(context: Context) {
-            context.startActivity(Intent(context, SearchActivity::class.java))
+        fun start(context: Context, siteKey: String? = null) {
+            val intent = Intent(context, SearchActivity::class.java)
+            if (!siteKey.isNullOrEmpty()) intent.putExtra(EXTRA_SITE_KEY, siteKey)
+            context.startActivity(intent)
         }
+        private const val EXTRA_SITE_KEY = "site_key"
     }
+
+    private var prefillSiteKey: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         configStore = ConfigStore(this)
+        prefillSiteKey = intent.getStringExtra(EXTRA_SITE_KEY)
         buildUI()
         showHistory()
     }
@@ -291,10 +297,16 @@ class SearchActivity : AppCompatActivity() {
                 return@launch
             }
 
+            // 如果从点播页带来预填站源，把它排到第一批首个（优先出结果）
+            val ordered = if (prefillSiteKey != null) {
+                val prefill = sites.find { it.key == prefillSiteKey }
+                if (prefill != null) listOf(prefill) + sites.filter { it.key != prefillSiteKey } else sites
+            } else sites
+
             var searched = 0
             var found = 0
 
-            sites.chunked(6).forEach { batch ->
+            ordered.chunked(6).forEach { batch ->
                 if (myGen != searchGen) return@launch
 
                 // 每个站源一个任务，索引与 batch 对齐（不能用 sites.indexOf，跨批次会错位）

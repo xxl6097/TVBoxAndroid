@@ -272,5 +272,6 @@ data class Favorite(
     var siteKey: String = "",
     var vodName: String = "",
     var vodPic: String = "",
+    var vodClass: String = "",
     var createdAt: Long = 0
 )

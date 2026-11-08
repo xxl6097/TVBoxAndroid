@@ -502,7 +502,9 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
 
-        // 海报：圆角 4dp + 轻阴影
+        // 海报：FrameLayout 包圆角图 + NEW 角标
+        val imgBox = android.widget.FrameLayout(this)
+
         val img = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(Color.parseColor("#2A272E"))
@@ -514,10 +516,30 @@ class MainActivity : AppCompatActivity() {
             }
             elevation = dp(2).toFloat()
         }
-        card.addView(img, LinearLayout.LayoutParams(dp(132), dp(186)))
+        imgBox.addView(img, android.widget.FrameLayout.LayoutParams(dp(132), dp(186)))
         if (vod.pic.isNotEmpty()) {
             Glide.with(this).load(vod.pic).centerCrop().into(img)
         }
+
+        // NEW 角标：如果上次抓取时间在 24 小时内且片名首次出现就标注
+        val lastCrawl = configStore.getLastCrawlAt()
+        val isNew = lastCrawl > 0 && (System.currentTimeMillis() - lastCrawl) < 86_400_000L
+        if (isNew && vod.remark.contains("新") ) {
+            imgBox.addView(TextView(this).apply {
+                text = " NEW "
+                textSize = 10f
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.parseColor("#E53935"))
+                setPadding(dp(3), dp(2), dp(3), dp(2))
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.TOP or android.view.Gravity.START
+            ).also { it.setMargins(dp(4), dp(4), 0, 0) })
+        }
+
+        card.addView(imgBox, LinearLayout.LayoutParams(dp(140), dp(194)))
 
         // 标题：加粗 + 更亮的白色
         card.addView(elided(vod.name, 13f, Color.WHITE).apply {

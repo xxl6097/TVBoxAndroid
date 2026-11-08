@@ -12,8 +12,13 @@ android {
         applicationId = "com.hong.tvbox"
         minSdk = 21
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        // versionCode 用 git commit 数量自动递增（CI 环境没有 git 时 fallback 80）
+        versionCode = try {
+            val proc = Runtime.getRuntime().exec(arrayOf("git", "rev-list", "--count", "HEAD"))
+            proc.waitFor()
+            proc.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 80
+        } catch (e: Exception) { 80 }
+        versionName = "1.1.0"
     }
 
     /**

@@ -963,14 +963,13 @@ class PlayerActivity : AppCompatActivity() {
                             return
                         }
                     }
-                    // 服务器返回的内容不是视频（不是 4xx/5xx，而是 HTML/文本），
-                    // 这种最常见于地址不对、被 UA 拦截、或需要登录态 —— 给一句能指导用户的话
-                    val hint = when {
+                    // 服务器返回的内容不是视频，或其他格式/网络问题，由 showError 给出具体提示
+                    val rawMsg = when {
                         error.cause is androidx.media3.exoplayer.source.UnrecognizedInputFormatException ->
-                            "服务器返回的内容不是视频（可能被拦截或地址已失效）"
-                        else -> error.message
+                            "不是视频（可能被拦截或地址已失效）"
+                        else -> error.message ?: "未知错误（${error.errorCode}）"
                     }
-                    showError("播放失败：$hint")
+                    showError(rawMsg)
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -1160,7 +1159,20 @@ class PlayerActivity : AppCompatActivity() {
     private fun showError(msg: String) {
         loadingView.visibility = View.GONE
         osdView.visibility = View.GONE
-        errorText.text = msg
+        // 根据错误信息给出可操作的提示
+        val (title, suggestion) = when {
+            msg.contains("不是视频") || msg.contains("UnrecognizedInputFormat") ->
+                "地址已失效或被拦截" to "试试换线路或换源"
+            msg.contains("网络") || msg.contains("timeout") || msg.contains("connect") ->
+                "网络连接失败" to "检查网络后重试，或换线路"
+            msg.contains("403") || msg.contains("401") || msg.contains("404") ->
+                "源站拒绝访问" to "该源可能需要登录或已失效，试试换站源"
+            msg.contains("SSL") || msg.contains("certificate") ->
+                "证书校验失败" to "源站 SSL 证书有问题，换源试试"
+            else ->
+                msg to "重试或换线路"
+        }
+        errorText.text = "播放失败：$title\n\n💡 $suggestion"
         errorView.visibility = View.VISIBLE
     }
 

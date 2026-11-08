@@ -543,7 +543,8 @@ class DetailActivity : AppCompatActivity() {
                 vodId = vodId,
                 siteKey = siteKey,
                 vodName = vod.name,
-                vodPic = vod.pic
+                vodPic = vod.pic,
+                vodClass = vod.typeName
             ))
             isFavorite = true
             Toast.makeText(this, "已加入收藏", Toast.LENGTH_SHORT).show()
