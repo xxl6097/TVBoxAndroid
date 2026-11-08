@@ -38,14 +38,12 @@ jobs:
 
       - name: Build APK (Debug)
         run: |
-          cd TVBoxAndroid
           ./gradlew assembleDebug -x lintVitalRelease
         env:
           GRADLE_OPTS: "-Xmx4g -Dfile.encoding=UTF-8"
 
       - name: Run Unit Tests
         run: |
-          cd TVBoxAndroid
           ./gradlew testDebugUnitTest --no-daemon
         continue-on-error: true
 
@@ -54,7 +52,7 @@ jobs:
         if: always()
         with:
           name: Unit Test Results
-          path: 'TVBoxAndroid/app/build/test-results/testDebugUnitTest/TEST-*.xml'
+          path: 'app/build/test-results/testDebugUnitTest/TEST-*.xml'
           reporter: 'java-junit'
           fail-on-error: false
 
@@ -63,7 +61,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: tvbox-debug-apk
-          path: TVBoxAndroid/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
 
       - name: Build Report
@@ -98,7 +96,6 @@ jobs:
 
       - name: Run Linter
         run: |
-          cd TVBoxAndroid
           ./gradlew lint -x assembleDebug
         continue-on-error: true
 
@@ -107,7 +104,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: lint-reports
-          path: 'TVBoxAndroid/app/build/reports/lint-results*.html'
+          path: 'app/build/reports/lint-results*.html'
           retention-days: 7
 
   performance-test:
@@ -125,7 +122,6 @@ jobs:
 
       - name: Run Performance Tests
         run: |
-          cd TVBoxAndroid
           ./gradlew testDebugUnitTest -Dkotlin.compiler.execution.strategy=in-process
         continue-on-error: true
 
