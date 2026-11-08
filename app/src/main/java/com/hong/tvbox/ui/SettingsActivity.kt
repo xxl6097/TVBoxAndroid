@@ -151,11 +151,10 @@ class SettingsActivity : AppCompatActivity() {
             val total = configStore.getConfig()?.sites?.size ?: 0
             val usable = configStore.getConfig()?.sites?.count { it.usable } ?: 0
             text = if (total > 0) "站源 $usable / $total" else ""
-            textSize = 14f
+            textSize = 13f
             setTextColor(TvUi.DIM)
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-            gravity = Gravity.END
-        })
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         return bar
     }
 

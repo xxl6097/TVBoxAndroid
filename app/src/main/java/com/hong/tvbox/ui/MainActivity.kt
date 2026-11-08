@@ -202,7 +202,16 @@ class MainActivity : AppCompatActivity() {
     // ============ 功能行 ============
 
     private fun addFunctionRow() {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            // 圆角底板：和左侧海报形成同色系深面，让功能行有独立视觉块
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = dp(16).toFloat()
+                setColor(0xFF1C1B1F.toInt())
+            }
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
 
         listOf(
             "点播" to { VodBrowseActivity.start(this) },
@@ -222,7 +231,7 @@ class MainActivity : AppCompatActivity() {
         ).also { it.bottomMargin = dp(16) })
     }
 
-    /** 功能块：图标 34dp + 文字 17sp，1fr×8 等分，聚焦放大 1.1 */
+    /** 功能块：图标 38dp + 文字 15sp，1fr×8 等分，聚焦放大 1.1 */
     private fun funcCell(label: String, onClick: () -> Unit): View {
         val cell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -231,22 +240,22 @@ class MainActivity : AppCompatActivity() {
                 Feedback.tap(this@MainActivity)
                 onClick()
             }
-            onTvFocus(scale = 1.1f)
+            onTvFocus(normalColor = Color.TRANSPARENT, focusColor = 0x33FFFFFF.toInt(), scale = 1.1f)
         }
         cell.addView(ImageView(this).apply {
             setImageResource(funcIcon(label))
             scaleType = ImageView.ScaleType.FIT_CENTER
-        }, LinearLayout.LayoutParams(dp(34), dp(34)))
+        }, LinearLayout.LayoutParams(dp(38), dp(38)))
         cell.addView(TextView(this).apply {
             text = label
-            textSize = 17f
-            setTextColor(Color.WHITE)
+            textSize = 15f
+            setTextColor(TvUi.SUB)
             maxLines = 1
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).also { it.topMargin = dp(4) })
+        ).also { it.topMargin = dp(6) })
 
-        cell.layoutParams = LinearLayout.LayoutParams(0, dp(74), 1f)
+        cell.layoutParams = LinearLayout.LayoutParams(0, dp(82), 1f)
         return cell
     }
 
@@ -552,9 +561,10 @@ class MainActivity : AppCompatActivity() {
     private fun sectionTitle(text: String): TextView {
         return TextView(this).apply {
             this.text = text
-            textSize = 15f
-            setTextColor(TvUi.SUB)
-            setPadding(dp(2), dp(14), 0, dp(8))
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(dp(2), dp(16), 0, dp(8))
         }
     }
 
