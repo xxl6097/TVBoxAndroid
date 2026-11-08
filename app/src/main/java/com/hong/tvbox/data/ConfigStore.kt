@@ -359,10 +359,30 @@ class ConfigStore(context: Context) {
 
     // ---------- 网盘扫描缓存（对齐鸿蒙 Store.webdavScanCache / saveWebdavScan）----------
 
-    /** 读取网盘源的扫描缓存 */
-    fun getWebdavScanCache(srcId: String): List<WebdavVod>? {
+    /**
+     * 读取网盘源的扫描缓存
+     * 问题：缓存长期保存，网盘内容更新不会自动刷新
+     * 解决：加 TTL (7 天)，超期自动清除
+     *
+     * @param srcId 网盘源 ID
+     * @param maxAgeMs 最大缓存年龄（毫秒），默认 7 天
+     * @return 缓存数据，或 null 如果不存在或已过期
+     */
+    fun getWebdavScanCache(srcId: String, maxAgeMs: Long = 7*24*3600*1000L): List<WebdavVod>? {
         val key = KEY_WEBDAV_SCAN_PREFIX + srcId
         val json = prefs.getString(key, null) ?: return null
+        
+        // 检查缓存年龄
+        val ttlKey = key + "_ttl"
+        val savedTime = prefs.getLong(ttlKey, 0)
+        val now = System.currentTimeMillis()
+        
+        if (now - savedTime > maxAgeMs) {
+            // 缓存过期，自动清除
+            clearWebdavScanCache(srcId)
+            return null
+        }
+        
         return try {
             val type = object : com.google.gson.reflect.TypeToken<List<WebdavVod>>() {}.type
             gson.fromJson(json, type)
@@ -371,16 +391,41 @@ class ConfigStore(context: Context) {
         }
     }
 
-    /** 保存网盘源的扫描结果 */
+    /** 保存网盘源的扫描结果（同时记录保存时间） */
     fun saveWebdavScanCache(srcId: String, vods: List<WebdavVod>) {
         val key = KEY_WEBDAV_SCAN_PREFIX + srcId
-        prefs.edit().putString(key, gson.toJson(vods)).apply()
+        prefs.edit()
+            .putString(key, gson.toJson(vods))
+            .putLong(key + "_ttl", System.currentTimeMillis())  // 记录保存时间
+            .apply()
     }
 
     /** 清除网盘源的扫描缓存 */
     fun clearWebdavScanCache(srcId: String) {
         val key = KEY_WEBDAV_SCAN_PREFIX + srcId
-        prefs.edit().remove(key).apply()
+        prefs.edit()
+            .remove(key)
+            .remove(key + "_ttl")
+            .apply()
+    }
+
+    /** 清除所有已过期的 WebDAV 扫描缓存 */
+    fun clearExpiredWebdavCaches(maxAgeMs: Long = 7*24*3600*1000L) {
+        val now = System.currentTimeMillis()
+        val toRemove = mutableListOf<String>()
+        
+        // 迭代所有 KEY
+        prefs.all.forEach { (k, _) ->
+            if (k.startsWith(KEY_WEBDAV_SCAN_PREFIX) && k.endsWith("_ttl")) {
+                val savedTime = prefs.getLong(k, 0)
+                if (now - savedTime > maxAgeMs) {
+                    val srcId = k.substring(KEY_WEBDAV_SCAN_PREFIX.length, k.length - 4)
+                    toRemove.add(srcId)
+                }
+            }
+        }
+        
+        toRemove.forEach { clearWebdavScanCache(it) }
     }
 
     // ---------- 网盘续播记录（对齐鸿蒙 WdHistory）----------

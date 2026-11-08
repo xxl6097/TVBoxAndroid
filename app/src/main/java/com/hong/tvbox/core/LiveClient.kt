@@ -1,7 +1,11 @@
 package com.hong.tvbox.core
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
 import java.io.File
 
 /**
@@ -15,6 +19,14 @@ import java.io.File
  * 不做任何二次归类：源写什么就显示什么，认不出来的归「未分组」。
  */
 object LiveClient {
+
+    /**
+     * 并发连接限制器
+     * 限制活跃连接数为 CPU 核心数（通常 4-8），避免手机过热、CPU 100%
+     */
+    private val concurrencySemaphore = Semaphore(
+        Runtime.getRuntime().availableProcessors().coerceAtLeast(4).coerceAtMost(8)
+    )
 
     /**
      * 单条流探活。
@@ -44,6 +56,55 @@ object LiveClient {
         } catch (e: Exception) {
             false
         }
+    }
+
+    /**
+     * 并发探活多个直播源，控制活跃连接数
+     *
+     * 问题：同时发起 18+ HTTP 请求导致手机过热、CPU 占用 100%
+     * 解决：使用 Semaphore 限制并发，最多 4-8 个任务同时运行
+     *
+     * @param urls 直播源 URL 列表
+     * @return 可用性结果列表，顺序同输入
+     */
+    suspend fun probeBatch(urls: List<String>): List<Boolean> = coroutineScope {
+        urls.map { url ->
+            async {
+                concurrencySemaphore.acquire()
+                try {
+                    probe(url)
+                } finally {
+                    concurrencySemaphore.release()
+                }
+            }
+        }.awaitAll()
+    }
+
+    /**
+     * 直播源测速排行（带并发限制）
+     *
+     * @param sources 直播源列表
+     * @return 按响应速度排序的结果列表
+     */
+    suspend fun rankSources(sources: List<LiveSource>): List<Pair<LiveSource, Long>> = coroutineScope {
+        val results = sources.map { src ->
+            async {
+                concurrencySemaphore.acquire()
+                try {
+                    val start = System.currentTimeMillis()
+                    val ok = probe(src.url, 8000)  // 8s 超时
+                    val elapsed = System.currentTimeMillis() - start
+                    if (ok) src to elapsed else src to Long.MAX_VALUE
+                } catch (e: Exception) {
+                    src to Long.MAX_VALUE
+                } finally {
+                    concurrencySemaphore.release()
+                }
+            }
+        }.awaitAll()
+        
+        // 按响应速度排序，失败（MAX_VALUE）排最后
+        results.sortedBy { it.second }
     }
 
     /** 拉取并解析。失败抛异常，由调用方展示文案 */

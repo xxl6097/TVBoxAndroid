@@ -5,11 +5,13 @@ import android.graphics.drawable.GradientDrawable
 import android.view.MotionEvent
 import android.view.View
 import android.widget.EditText
+import android.widget.ImageView
+import com.hong.tvbox.core.GlideOptimizer
 
 /**
  * TV 焦点样式。
  *
- * 遥控器场景下没有鼠标悬停，用户唯一的反馈就是“焦点框在哪”。
+ * 遥控器场景下没有鼠标悬停，用户唯一的反馈就是"焦点框在哪"。
  * 之前卡片/胶囊只是普通可点 View，拿到焦点后外观完全不变，
  * 方向键按下去屏幕上没有任何变化，等于无法操作。
  *
@@ -116,3 +118,26 @@ fun android.view.ViewGroup.requestFirstChildFocus() {
         }
     }
 }
+
+/**
+ * ImageView 扩展函数：加载缩略图（海报墙）
+ * 使用 GlideOptimizer 的优化策略
+ */
+fun ImageView.loadThumbnail(url: String, placeholder: Int? = null) {
+    GlideOptimizer.loadThumbnail(this, url, placeholder)
+}
+
+/**
+ * ImageView 扩展函数：加载全图（详情页海报）
+ */
+fun ImageView.loadFullImage(url: String, placeholder: Int? = null) {
+    GlideOptimizer.loadFullImage(this, url, placeholder)
+}
+
+/**
+ * ImageView 扩展函数：加载自定义尺寸图片
+ */
+fun ImageView.loadCustomSize(url: String, width: Int, height: Int) {
+    GlideOptimizer.loadCustomSize(this, url, width, height)
+}
+

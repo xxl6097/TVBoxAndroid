@@ -92,7 +92,8 @@ data class Vod(
     var from: String = "",          // 线路名，$$$ 分隔
     var playUrl: String = "",       // 播放地址，$$$ 分隔线路，# 分隔剧集
     var siteKey: String = "",
-    var siteName: String = ""
+    var siteName: String = "",
+    var comments: List<Comment> = emptyList()  // 评论列表（新增）
 )
 
 data class VodPage(
@@ -275,3 +276,14 @@ data class Favorite(
     var vodClass: String = "",
     var createdAt: Long = 0
 )
+
+// ============ 评论 ============
+
+data class Comment(
+    var author: String = "",           // 评论者
+    var text: String = "",             // 评论内容
+    var rating: Int = 0,               // 评分（1-5 星）
+    var time: String = "",             // 评论时间
+    var likes: Int = 0                 // 点赞数
+)
+
