@@ -318,7 +318,7 @@ class WebdavActivity : AppCompatActivity() {
         }
         titleView.text = "网盘 · ${sources.size} 个源"
 
-        sources.forEach { src ->
+        sources.forEach { src: WebdavSource ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL

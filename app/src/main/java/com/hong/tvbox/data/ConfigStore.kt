@@ -7,6 +7,7 @@ import com.hong.tvbox.core.Config
 import com.hong.tvbox.core.LiveSource
 import com.hong.tvbox.core.Site
 import com.hong.tvbox.core.Vod
+import com.hong.tvbox.core.WebdavSource
 import com.hong.tvbox.core.WebdavVod
 import com.hong.tvbox.core.WdHistory
 

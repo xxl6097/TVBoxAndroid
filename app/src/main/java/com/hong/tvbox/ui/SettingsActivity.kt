@@ -305,7 +305,7 @@ class SettingsActivity : AppCompatActivity() {
             card.addView(sDiv())
             card.addView(subText("挂载 WebDAV 网盘（极空间 / 群晖 / AList 等）后，可在首页「网盘」里浏览并播放。"))
         } else {
-            sources.forEach { src ->
+            sources.forEach { src: com.hong.tvbox.core.WebdavSource ->
                 card.addView(sDiv())
                 card.addView(sRow(src.name.ifEmpty { "未命名" }, src.url, arrow = true) { showWdEdit(src) })
             }
