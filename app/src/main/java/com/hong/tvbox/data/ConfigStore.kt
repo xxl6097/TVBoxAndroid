@@ -7,7 +7,8 @@ import com.hong.tvbox.core.Config
 import com.hong.tvbox.core.LiveSource
 import com.hong.tvbox.core.Site
 import com.hong.tvbox.core.Vod
-import com.hong.tvbox.core.WebdavSource
+import com.hong.tvbox.core.WebdavVod
+import com.hong.tvbox.core.WdHistory
 
 /**
  * 配置存储 - 从 ArkTS Store.ets 移植
@@ -31,6 +32,8 @@ class ConfigStore(context: Context) {
         private const val KEY_CRAWL_SUMMARY = "crawl_summary"
         private const val KEY_KEYWORDS = "search_keywords"
         private const val KEY_WEBDAV_LIST = "webdav_list"
+        private const val KEY_WEBDAV_SCAN_PREFIX = "webdav_scan_"    // + srcId
+        private const val KEY_WD_HISTORY = "webdav_history"
         private const val KEY_LIVE_PATH = "live_path"
         private const val KEY_LAST_UPDATE = "last_update"
         private const val KEY_TAP_SOUND = "tap_sound"
@@ -341,6 +344,62 @@ class ConfigStore(context: Context) {
     fun removeWebdavSource(id: String) {
         val list = getWebdavSources().filter { it.id != id }
         prefs.edit().putString(KEY_WEBDAV_LIST, gson.toJson(list)).apply()
+    }
+
+    // ---------- 网盘扫描缓存（对齐鸿蒙 Store.webdavScanCache / saveWebdavScan）----------
+
+    /** 读取网盘源的扫描缓存 */
+    fun getWebdavScanCache(srcId: String): List<WebdavVod>? {
+        val key = KEY_WEBDAV_SCAN_PREFIX + srcId
+        val json = prefs.getString(key, null) ?: return null
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<WebdavVod>>() {}.type
+            gson.fromJson(json, type)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** 保存网盘源的扫描结果 */
+    fun saveWebdavScanCache(srcId: String, vods: List<WebdavVod>) {
+        val key = KEY_WEBDAV_SCAN_PREFIX + srcId
+        prefs.edit().putString(key, gson.toJson(vods)).apply()
+    }
+
+    /** 清除网盘源的扫描缓存 */
+    fun clearWebdavScanCache(srcId: String) {
+        val key = KEY_WEBDAV_SCAN_PREFIX + srcId
+        prefs.edit().remove(key).apply()
+    }
+
+    // ---------- 网盘续播记录（对齐鸿蒙 WdHistory）----------
+
+    fun getWdHistory(): List<WdHistory> {
+        val json = prefs.getString(KEY_WD_HISTORY, null) ?: return emptyList()
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<WdHistory>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** 新增或更新网盘续播记录（按 srcId + vodName + epName 唯一） */
+    fun saveWdHistory(hist: WdHistory) {
+        val list = getWdHistory().toMutableList()
+        val idx = list.indexOfFirst {
+            it.srcId == hist.srcId && it.vodName == hist.vodName && it.epName == hist.epName
+        }
+        val updated = hist.copy(updatedAt = System.currentTimeMillis())
+        if (idx >= 0) list[idx] = updated else list.add(0, updated)
+
+        // 最多保留 50 条
+        val out = list.take(50)
+        prefs.edit().putString(KEY_WD_HISTORY, gson.toJson(out)).apply()
+    }
+
+    fun clearWdHistory() {
+        prefs.edit().remove(KEY_WD_HISTORY).apply()
     }
     
     /**

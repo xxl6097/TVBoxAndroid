@@ -183,6 +183,11 @@ class WebdavActivity : AppCompatActivity() {
                     statusView.text = "扫描中… 已扫 $dirs 个目录，发现 $files 个视频"
                 }
                 scanVods = vods
+                // 保存缓存，下次进入直接读取（对齐鸿蒙 Store.saveWebdavScan）
+                if (vods.isNotEmpty()) {
+                    configStore.saveWebdavScanCache(src.id, vods)
+                    statusView.text = "识别到 ${vods.size} 部，已保存缓存"
+                }
                 renderScanResult(vods)
             } catch (e: Exception) {
                 statusView.text = "扫描失败：${e.message}"
@@ -195,7 +200,25 @@ class WebdavActivity : AppCompatActivity() {
         showListMode()
         titleView.text = "网盘 · 识别结果"
         pathView.text = ""
-        statusView.text = if (vods.isEmpty()) "没识别出影视，点「切换源」回目录浏览" else "识别到 ${vods.size} 部"
+        statusView.text = if (vods.isEmpty()) "没识别出影视，点「切换源」回目录浏览" else "识别到 ${vods.size} 部（已缓存，下次进入自动加载）"
+
+        // 顶部操作行：浏览目录 / 重新扫描 / 清除缓存
+        val src = source
+        if (src != null) {
+            val opRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(dp(2), dp(4), 0, dp(12))
+            }
+            opRow.addView(smallChip("浏览目录") { browse("") })
+            opRow.addView(smallChip("重新扫描") { startScan() })
+            opRow.addView(smallChip("清除缓存") {
+                configStore.clearWebdavScanCache(src.id)
+                scanVods = emptyList()
+                Toast.makeText(this, "缓存已清除", Toast.LENGTH_SHORT).show()
+                browse("")
+            })
+            listContainer.addView(opRow)
+        }
 
         vods.forEach { vod ->
             val row = LinearLayout(this).apply {
@@ -328,7 +351,16 @@ class WebdavActivity : AppCompatActivity() {
             row.setOnClickListener {
                 this.source = src
                 paths.clear()
-                browse("")
+                // 先读缓存，有缓存直接展示识别结果；无缓存再浏览目录（对齐鸿蒙 webdavScanCache）
+                val cached = configStore.getWebdavScanCache(src.id)
+                if (cached != null && cached.isNotEmpty()) {
+                    scanVods = cached
+                    titleView.text = src.name.ifEmpty { "网盘" }
+                    pathView.text = "上次扫描缓存"
+                    renderScanResult(cached)
+                } else {
+                    browse("")
+                }
             }
             row.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1f)
             row.layoutParams = LinearLayout.LayoutParams(

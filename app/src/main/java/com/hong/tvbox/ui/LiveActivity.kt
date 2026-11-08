@@ -23,6 +23,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import androidx.appcompat.app.AlertDialog
 
 /**
  * 直播页 - 对照鸿蒙 LivePage.ets
@@ -98,6 +99,7 @@ class LiveActivity : AppCompatActivity() {
         }
         topBar.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
+        topBar.addView(actionChip("换源") { showSourcePicker() })
         topBar.addView(actionChip("检测") { probeCurrentGroup() })
         topBar.addView(actionChip("测速") { rankSources() })
         topBar.addView(actionChip("刷新") { loadSource() })
@@ -160,6 +162,32 @@ class LiveActivity : AppCompatActivity() {
     }
 
     // ============ 数据 ============
+
+    /** 弹窗选择直播源（对齐鸿蒙 LivePage useSource） */
+    private fun showSourcePicker() {
+        val sources = configStore.getSubLives()
+        if (sources.isEmpty()) {
+            Toast.makeText(this, "还没有直播源订阅，到「设置 → 订阅管理」导入带 lives 的订阅", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val current = configStore.getLiveSourceUrl() ?: ""
+        val names = sources.map { src ->
+            val mark = if (src.url == current) "★ " else ""
+            "$mark${src.name}"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("选择直播源")
+            .setItems(names) { _, which ->
+                val picked = sources[which]
+                configStore.saveLiveSourceUrl(picked.url)
+                Toast.makeText(this, "已切换到：${picked.name}", Toast.LENGTH_SHORT).show()
+                loadSource()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
 
     private fun loadSource() {
         val url = configStore.getLiveSourceUrl()

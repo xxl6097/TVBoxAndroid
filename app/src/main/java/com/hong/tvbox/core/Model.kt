@@ -184,6 +184,18 @@ data class WebdavEp(
     var episode: Int = 0
 )
 
+/** 网盘续播记录（对齐鸿蒙 WdHistory） */
+data class WdHistory(
+    var srcId: String = "",
+    var vodName: String = "",
+    var epName: String = "",
+    /** 已看到第几毫秒 */
+    var pos: Long = 0,
+    /** 这一集的总时长（毫秒），0 表示未知 */
+    var dur: Long = 0,
+    var updatedAt: Long = 0
+)
+
 data class Line(
     var name: String = "",
     var direct: Boolean = false,    // 是否可直连播放
