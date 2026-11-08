@@ -19,6 +19,7 @@ import com.hong.tvbox.core.CmsClient
 import com.hong.tvbox.core.HttpClient
 import com.hong.tvbox.core.LiveSource
 import com.hong.tvbox.core.Site
+import com.hong.tvbox.core.WebdavClient
 import com.hong.tvbox.core.WebdavSource
 import com.hong.tvbox.data.ConfigStore
 import com.hong.tvbox.data.HistoryStore
@@ -312,8 +313,43 @@ class SettingsActivity : AppCompatActivity() {
         }
         card.addView(sDiv())
         card.addView(sRow("打开网盘", "浏览已挂载的目录", arrow = true) { WebdavActivity.start(this) })
+        if (sources.isNotEmpty()) {
+            card.addView(sDiv())
+            card.addView(sRow("识别并缓存影视", "扫描所有挂载源，识别视频保存缓存", arrow = true) {
+                scanAllWebdavSources()
+            })
+        }
         col.addView(card)
         return col
+    }
+
+    /** 后台逐个扫描所有 WebDAV 源，识别结果保存缓存（对齐鸿蒙 scanVods + Store.saveWebdavScan） */
+    private fun scanAllWebdavSources() {
+        val sources = configStore.getWebdavSources()
+        if (sources.isEmpty()) {
+            Toast.makeText(this, "还没有挂载任何网盘源", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "开始扫描 ${sources.size} 个网盘源…", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            var total = 0
+            var failed = 0
+            sources.forEach { src ->
+                try {
+                    val vods = WebdavClient.scan(src, 6)
+                    configStore.saveWebdavScanCache(src.id, vods)
+                    total += vods.size
+                } catch (e: Exception) {
+                    failed++
+                }
+            }
+            val msg = if (failed == 0) {
+                "扫描完成：共识别 $total 部影视，已保存缓存"
+            } else {
+                "扫描完成：$total 部已识别，${failed} 个源扫描失败"
+            }
+            Toast.makeText(this@SettingsActivity, msg, Toast.LENGTH_LONG).show()
+        }
     }
 
     // ==================== 分组：站源 ====================

@@ -280,11 +280,23 @@ class WebdavActivity : AppCompatActivity() {
         val eps = vod.eps.map { Episode(name = WebdavClient.epNameOf(it), url = it.url) }
         if (eps.isEmpty()) return
         val i = idx.coerceIn(0, eps.size - 1)
+        val ep = vod.eps[i]
 
-        // 历史记录用当前集的地址（续播时直接拿地址 + 源认证播）
+        // 保存 WdHistory 续播记录（对齐鸿蒙 WebdavPage.ets 播放前保存位置记录）
+        configStore.saveWdHistory(
+            com.hong.tvbox.core.WdHistory(
+                srcId = src.id,
+                vodName = vod.name,
+                epName = WebdavClient.epNameOf(ep),
+                pos = 0,
+                dur = 0,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+
         PlayerActivity.start(
             context = this,
-            vodId = vod.eps[i].url,
+            vodId = ep.url,
             siteKey = "webdav:${src.id}",
             vodName = vod.name,
             lineName = "网盘",
@@ -384,10 +396,25 @@ class WebdavActivity : AppCompatActivity() {
 
     // ============ 最近观看 ============
 
-    /** 只取网盘产生的历史（siteKey 以 webdav: 开头） */
+    /** 从 WdHistory + HistoryStore 合并网盘观看记录（WdHistory 保证识别后才播放也有记录，HistoryStore 有进度） */
     private fun addRecentRow() {
-        val recent = historyStore.getAll().filter { it.siteKey.startsWith("webdav:") }
-        if (recent.isEmpty()) return
+        val wdHist = configStore.getWdHistory()
+        // HistoryStore 有播放进度（position/duration），WdHistory 只有「看过的片子」列表
+        val histMap = historyStore.getAll()
+            .filter { it.siteKey.startsWith("webdav:") }
+            .associateBy { it.vodName }
+
+        // WdHistory 为权威列表，按 updatedAt 降序
+        val items = wdHist.sortedByDescending { it.updatedAt }.take(12)
+        if (items.isEmpty()) {
+            // fallback：只有 HistoryStore 有网盘记录时也展示（兼容旧数据）
+            val oldRecent = historyStore.getAll().filter { it.siteKey.startsWith("webdav:") }
+            if (oldRecent.isEmpty()) return
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            oldRecent.take(10).forEach { row.addView(recentCard(it)) }
+            addRecentScrollView(row)
+            return
+        }
 
         listContainer.addView(TextView(this).apply {
             text = "最近观看"
@@ -397,8 +424,19 @@ class WebdavActivity : AppCompatActivity() {
         })
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        recent.take(10).forEach { row.addView(recentCard(it)) }
+        items.forEach { wd ->
+            // 找对应的 HistoryStore 记录（有进度信息），找不到就用 WdHistory 本身
+            val hist = histMap[wd.vodName]
+            if (hist != null) {
+                row.addView(recentCard(hist))
+            } else {
+                row.addView(wdRecentCard(wd))
+            }
+        }
+        addRecentScrollView(row)
+    }
 
+    private fun addRecentScrollView(row: LinearLayout) {
         listContainer.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             clipToPadding = false
@@ -406,6 +444,85 @@ class WebdavActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).also { it.bottomMargin = dp(18) })
+    }
+
+    /** WdHistory 卡片（无进度信息时展示「已观看」标记） */
+    private fun wdRecentCard(wd: com.hong.tvbox.core.WdHistory): View {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+        }
+
+        val cover = FrameLayout(this)
+        cover.addView(ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(Color.parseColor("#2A272E"))
+        }, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(112)
+        ))
+        cover.addView(TextView(this).apply {
+            text = "🎬"
+            textSize = 28f
+            gravity = Gravity.CENTER
+        }, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(112)
+        ))
+        card.addView(cover, LinearLayout.LayoutParams(dp(196), dp(112)))
+
+        card.addView(TextView(this).apply {
+            text = wd.vodName
+            textSize = 13f
+            setTextColor(TvUi.TEXT)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.MIDDLE
+            maxWidth = dp(196)
+            setPadding(0, dp(6), 0, 0)
+        })
+        card.addView(TextView(this).apply {
+            text = wd.epName
+            textSize = 11f
+            setTextColor(TvUi.DIM)
+        })
+
+        card.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.marginEnd = dp(10) }
+
+        card.setOnClickListener {
+            // 从缓存找这部片子，找到就播放
+            playWdHistory(wd)
+        }
+        card.onTvFocus(normalColor = Color.TRANSPARENT, focusColor = TvUi.CARD_HI, scale = 1.04f)
+        return card
+    }
+
+    /** 从 WdHistory 点进续播：在缓存里找对应片子，定位到上次看的集 */
+    private fun playWdHistory(wd: com.hong.tvbox.core.WdHistory) {
+        val src = configStore.getWebdavSources().find { it.id == wd.srcId } ?: run {
+            Toast.makeText(this, "源已不存在", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cached = configStore.getWebdavScanCache(src.id) ?: run {
+            Toast.makeText(this, "缓存已失效，请重新扫描", Toast.LENGTH_SHORT).show()
+            // 缓存没了，进入源目录浏览
+            this.source = src
+            paths.clear()
+            browse("")
+            return
+        }
+        val vod = cached.find { it.name == wd.vodName } ?: run {
+            Toast.makeText(this, "未找到「${wd.vodName}」", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 找到上次看的集
+        val epIdx = vod.eps.indexOfFirst { WebdavClient.epNameOf(it) == wd.epName }
+        if (epIdx >= 0) {
+            this.source = src
+            playEp(vod, epIdx)
+        } else {
+            this.source = src
+            playVod(vod)
+        }
     }
 
     private fun recentCard(h: History): View {
