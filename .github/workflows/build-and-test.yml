@@ -22,7 +22,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
+          cache: gradle   # 自动缓存 ~/.gradle
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -32,7 +32,7 @@ jobs:
         env:
           GRADLE_OPTS: -Xmx3g
 
-      - name: Build Release APK (signed with debug key)
+      - name: Build Release APK
         run: |
           ./gradlew assembleRelease -x lint --no-daemon \
             -PKEYSTORE_PATH=debug.keystore \
@@ -52,10 +52,8 @@ jobs:
       - name: Rename APKs
         run: |
           V=${{ steps.version.outputs.version }}
-          # debug
           mv app/build/outputs/apk/debug/app-debug.apk \
              app/build/outputs/apk/debug/TVBoxAndroid-v${V}-debug.apk 2>/dev/null || true
-          # release
           mv app/build/outputs/apk/release/app-release.apk \
              app/build/outputs/apk/release/TVBoxAndroid-v${V}-release.apk 2>/dev/null || true
           echo "=== Output files ==="
@@ -75,7 +73,7 @@ jobs:
           path: app/build/outputs/apk/release/TVBoxAndroid-*.apk
           retention-days: 30
 
-      # 打 tag 时自动发布 GitHub Release
+      # tag 推送时自动创建 GitHub Release 并上传 APK
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -84,17 +82,15 @@ jobs:
           name: "夜帧影视 ${{ github.ref_name }}"
           body: |
             ## 夜帧影视 ${{ github.ref_name }}
-            
-            版本: ${{ steps.version.outputs.version }}
-            构建时间: ${{ github.event.repository.updated_at }}
-            提交: ${{ github.sha }}
-            
+
+            **版本**: ${{ steps.version.outputs.version }}
+            **提交**: ${{ github.sha }}
+
             ### 安装方法
-            - 下载 `TVBoxAndroid-*-release.apk`（正式包，已签名可直接安装）
-            - 下载 `TVBoxAndroid-*-debug.apk`（调试包，方便开发调试）
-            
+            下载 `TVBoxAndroid-*-release.apk`（已签名，可直接安装）
+
             ### 应用内更新
-            打开应用 → 设置 → 关于 → 检查更新
+            设置 → 关于 → 检查更新
           draft: false
           prerelease: false
           files: |
