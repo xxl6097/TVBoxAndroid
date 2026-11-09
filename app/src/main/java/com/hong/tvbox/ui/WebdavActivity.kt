@@ -15,13 +15,18 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.hong.tvbox.core.History
 import com.hong.tvbox.core.Episode
+import com.hong.tvbox.core.QRCodeGenerator
 import com.hong.tvbox.core.WebdavClient
 import com.hong.tvbox.core.WebdavEntry
 import com.hong.tvbox.core.WebdavEp
+import com.hong.tvbox.core.WebdavPairServer
 import com.hong.tvbox.core.WebdavSource
 import com.hong.tvbox.core.WebdavVod
 import com.hong.tvbox.data.ConfigStore
 import com.hong.tvbox.data.HistoryStore
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -44,6 +49,11 @@ class WebdavActivity : AppCompatActivity() {
     private var source: WebdavSource? = null
     /** 浏览路径栈（相对挂载根），空栈表示根目录 */
     private val paths = ArrayDeque<String>()
+
+    /** 扫码配对服务（显示二维码时启动，关闭对话框时停止） */
+    private var pairServer: WebdavPairServer? = null
+    private var pairServerJob: Job? = null
+    private var pairPollJob: Job? = null
 
     companion object {
         fun start(context: Context) {
@@ -94,7 +104,8 @@ class WebdavActivity : AppCompatActivity() {
         }
         topBar.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
-        topBar.addView(chip("添加源") { editSource(null) })
+        topBar.addView(chip("扫码添加") { startQRPair() })
+        topBar.addView(chip("手动添加") { editSource(null) })
         topBar.addView(chip("识别影视") { startScan() })
         topBar.addView(chip("切换源") { renderSources() })
         root.addView(topBar)
@@ -325,7 +336,7 @@ class WebdavActivity : AppCompatActivity() {
 
         val sources = configStore.getWebdavSources()
         if (sources.isEmpty()) {
-            statusView.text = "还没有网盘源。点「添加源」填 WebDAV 地址（极空间默认端口 5005）。"
+            statusView.text = "还没有网盘源。点「扫码添加」用手机扫码填写（推荐），或「手动添加」自行输入。极空间默认端口 5005。"
             return
         }
         titleView.text = "网盘 · ${sources.size} 个源"
@@ -869,6 +880,153 @@ class WebdavActivity : AppCompatActivity() {
                 )
             }
         }
+    }
+
+    // ============ 扫码添加 ============
+
+    /**
+     * 显示二维码，手机扫码后在手机上填写 WebDAV 信息，TV 端自动接收保存。
+     *
+     * TV 上遥控器输地址/账号密码太难用了。这个功能把填写动作转移到手机上：
+     * 1. TV 内部起一个微型 HTTP 服务
+     * 2. 把配对地址编成二维码显示在 TV 上
+     * 3. 手机扫一扫，浏览器打开表单，填完提交
+     * 4. TV 轮询收到结果，自动保存并刷新列表
+     */
+    private fun startQRPair() {
+        // 如果已有服务在跑，先停掉
+        stopPairServer()
+
+        val server = WebdavPairServer(this)
+        pairServer = server
+
+        // 检查能否拿到本机 IP
+        val pairUrl = server.pairUrl()
+        if (pairUrl == null) {
+            Toast.makeText(this, "无法获取 Wi-Fi IP，请确认已连接 Wi-Fi", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        // 生成二维码
+        val qrBmp = QRCodeGenerator.generate(pairUrl, 480)
+
+        // 构建对话框布局
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(16), dp(24), dp(8))
+        }
+
+        val qrView = ImageView(this).apply {
+            setImageBitmap(qrBmp)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(Color.WHITE)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        container.addView(qrView, LinearLayout.LayoutParams(dp(280), dp(280)).also {
+            it.gravity = Gravity.CENTER_HORIZONTAL
+        })
+
+        container.addView(TextView(this).apply {
+            text = "用手机扫一扫\n在手机上填写 WebDAV 信息"
+            textSize = 14f
+            setTextColor(TvUi.SUB)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(12), 0, dp(4))
+        })
+
+        container.addView(TextView(this).apply {
+            text = pairUrl
+            textSize = 11f
+            setTextColor(TvUi.DIM)
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.MIDDLE
+        })
+
+        // 状态提示（等待中...）
+        val statusText = TextView(this).apply {
+            text = "⏳ 等待手机端提交..."
+            textSize = 13f
+            setTextColor(TvUi.SELECTED)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, 0)
+        }
+        container.addView(statusText)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("扫码添加 WebDAV 源")
+            .setView(container)
+            .setPositiveButton("完成") { _, _ -> }
+            .setNegativeButton("取消") { _, _ -> }
+            .setOnCancelListener { stopPairServer() }
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                // 用户手动确认完成（如果有结果会自动保存，这里只是关闭弹窗）
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+
+        // 启动 HTTP 服务
+        pairServerJob = lifecycleScope.launch {
+            server.start()
+        }
+
+        // 轮询检查是否有结果
+        pairPollJob = lifecycleScope.launch {
+            while (isActive && pairServer != null) {
+                delay(800)
+                val result = server.takePending()
+                if (result != null) {
+                    // 收到了！自动保存
+                    val src = WebdavSource(
+                        id = "",
+                        name = result.name.ifEmpty { guessSourceName(result.url) },
+                        url = result.url,
+                        user = result.user,
+                        pass = result.pass,
+                        root = result.root
+                    )
+                    configStore.saveWebdavSource(src)
+                    statusText.text = "✅ 已保存「${src.name}」！"
+                    statusText.setTextColor(0xFF4CAF50.toInt())
+
+                    delay(1500)
+                    dialog.dismiss()
+                    stopPairServer()
+                    renderSources()
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopPairServer() {
+        pairPollJob?.cancel()
+        pairPollJob = null
+        pairServerJob?.cancel()
+        pairServerJob = null
+        pairServer?.stop()
+        pairServer = null
+    }
+
+    /** 从 URL 猜测源名（如 http://192.168.1.2:5005 → "192.168.1.2"） */
+    private fun guessSourceName(url: String): String {
+        return try {
+            val noProto = url.substringAfter("://")
+            val host = noProto.substringBefore('/').substringBefore(':')
+            host
+        } catch (_: Exception) {
+            url
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopPairServer()
     }
 
     // ============ 编辑源 ============
