@@ -1,4 +1,4 @@
-# TVBox Android - 鸿蒙影视 Android TV 版
+# TVBox Android - 夜帧影视 Android TV 版
 
 [![Build Status](https://img.shields.io/badge/v1.2.0-Optimized-brightgreen)](https://github.com/xxl6097/TVBoxAndroid/releases/tag/v1.2.0)
 [![Performance](https://img.shields.io/badge/Performance-↑40%25-blue)](OPTIMIZATION_v1.2.0.md)
@@ -7,7 +7,7 @@
 > ✨ **v1.2.0 重大更新**：17 项全面优化 - 性能 ↑40%、功能 +6、UI +4、测试 +3  
 > 📖 [优化详情](OPTIMIZATION_v1.2.0.md) | 🚀 [部署指南](DEPLOYMENT_GUIDE.md)
 
-从 HarmonyOS 原生应用 **TVBoxTV（鸿蒙影视）** 移植到 **Android TV** 平台。
+从 HarmonyOS 原生应用 **TVBoxTV（夜帧影视）** 移植到 **Android TV** 平台。
 
 **仓库：** https://github.com/xxl6097/TVBoxAndroid  
 **自动构建：** 每次 push 到 `main` 由 GitHub Actions 编译 Debug APK，产物在 Actions 页面 `TVBoxAndroid-debug` 附件里。
@@ -153,9 +153,9 @@ TVBoxAndroid/
 # 4. 运行
 ```
 
-## 与鸿蒙版本对照
+## 与夜帧版本对照
 
-| 模块 | 鸿蒙版本 | Android 版本 |
+| 模块 | 夜帧版本 | Android 版本 |
 |---|---|---|
 | HTTP 客户端 | @ohos.net.http | OkHttp |
 | 播放器 | AVPlayer + XComponent | ExoPlayer |
