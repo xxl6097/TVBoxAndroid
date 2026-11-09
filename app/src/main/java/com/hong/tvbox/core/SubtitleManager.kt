@@ -61,7 +61,6 @@ object SubtitleManager {
             .setMimeType(mimeType)
             .setLanguage(language)
             .setLabel(label)
-            .setSelectionFlags(MediaItem.SubtitleConfiguration.ROLE_FLAG_MAIN)
             .build()
     }
 

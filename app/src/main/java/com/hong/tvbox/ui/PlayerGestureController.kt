@@ -35,13 +35,14 @@ class PlayerGestureController(
         return gestureDetector.onTouchEvent(event)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION")
     override fun onScroll(
         e1: MotionEvent?,
-        e2: MotionEvent?,
+        e2: MotionEvent,
         distanceX: Float,
         distanceY: Float
     ): Boolean {
-        if (e1 == null || e2 == null) return false
+        if (e1 == null) return false
 
         val x1 = e1.x
         val screenWidth = if (window.decorView.width > 0) window.decorView.width else 1080
@@ -107,18 +108,12 @@ class PlayerGestureController(
         onVolumeChange(newVolume)
     }
 
-    /**
-     * 长按手势检测（可扩展，如长按快进）
-     */
-    override fun onLongPress(e: MotionEvent?) {
-        // TODO: 长按快进实现
+    override fun onLongPress(e: MotionEvent) {
+        // 长按快进（预留）
     }
 
-    /**
-     * 双击手势检测（可用于播放/暂停切换）
-     */
-    override fun onDoubleTap(e: MotionEvent?): Boolean {
-        // TODO: 双击播放/暂停实现
+    override fun onDoubleTap(e: MotionEvent): Boolean {
+        // 双击播放/暂停（预留）
         return true
     }
 }

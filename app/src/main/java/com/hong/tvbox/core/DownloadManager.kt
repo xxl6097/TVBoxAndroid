@@ -1,151 +1,110 @@
 package com.hong.tvbox.core
 
 import android.content.Context
-import androidx.media3.exoplayer.offline.DownloadRequest
-import androidx.media3.exoplayer.offline.DownloadService
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
-import android.net.Uri
+import android.os.Environment
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
- * 离线下载管理
- *
- * 问题：仅支持在线播放，网络不稳定时体验差
- * 解决：
- *   - ExoPlayer 内置 ProgressiveDownloadManager
- *   - 后台队列下载，支持暂停/继续
- *   - 本地缓存路径: /sdcard/Android/data/com.hong.tvbox/cache/downloads/
+ * 简易下载管理器（原生 HttpURLConnection，无需 ExoPlayer DownloadService）
+ * 支持断点续传、进度回调、取消。
  */
-class DownloadManager(private val context: Context) {
+object DownloadManager {
+    private const val TAG = "TVBoxDownload"
 
-    private val downloadCache = SimpleCache(
-        File(context.cacheDir, "downloads"),
-        LeastRecentlyUsedCacheEvictor(500 * 1024 * 1024)  // 500MB 上限
-    )
-
-    /**
-     * 下载队列项
-     */
-    data class DownloadItem(
+    data class Task(
         val id: String,
-        val title: String,
         val url: String,
-        val status: DownloadStatus = DownloadStatus.IDLE,
-        val progress: Int = 0,  // 0-100
-        val error: String? = null
+        val title: String,
+        var progress: Int = 0,
+        var status: Status = Status.PENDING,
+        var localPath: String = "",
+        var errorMsg: String = ""
     )
+    enum class Status { PENDING, DOWNLOADING, COMPLETED, FAILED, CANCELLED }
 
-    enum class DownloadStatus {
-        IDLE,           // 未下载
-        DOWNLOADING,    // 下载中
-        COMPLETED,      // 已完成
-        PAUSED,         // 已暂停
-        ERROR           // 错误
-    }
+    private val tasks = mutableListOf<Task>()
 
-    private val downloadQueue = mutableListOf<DownloadItem>()
+    suspend fun enqueue(
+        context: Context,
+        url: String,
+        title: String,
+        onProgress: (Int) -> Unit = {},
+        onDone: (String) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        val id = url.hashCode().toString()
+        val existing = tasks.find { it.id == id }
+        if (existing?.status == Status.DOWNLOADING || existing?.status == Status.COMPLETED) return@withContext
 
-    /**
-     * 入队下载
-     *
-     * @param url 视频 URL
-     * @param title 影视标题（用于本地文件名）
-     */
-    fun enqueueDownload(url: String, title: String) {
-        val id = title + "_" + System.currentTimeMillis()
-        val request = DownloadRequest.Builder(id, Uri.parse(url))
-            .setData(title.toByteArray())
-            .build()
+        val task = Task(id = id, url = url, title = title)
+        tasks.removeAll { it.id == id }
+        tasks.add(task)
+        task.status = Status.DOWNLOADING
 
-        downloadQueue.add(DownloadItem(
-            id = id,
-            title = title,
-            url = url,
-            status = DownloadStatus.IDLE
-        ))
-
-        // 实际下载由 DownloadService 处理
-        // DownloadService.sendAddDownload(context, VideoDownloadService::class.java, request, false)
-    }
-
-    /**
-     * 获取下载列表
-     */
-    fun getDownloadQueue(): List<DownloadItem> = downloadQueue
-
-    /**
-     * 暂停下载
-     */
-    fun pauseDownload(id: String) {
-        val idx = downloadQueue.indexOfFirst { it.id == id }
-        if (idx >= 0) {
-            downloadQueue[idx] = downloadQueue[idx].copy(status = DownloadStatus.PAUSED)
+        try {
+            val destFile = getDestFile(context, title, url)
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 15000; conn.readTimeout = 30000
+            conn.setRequestProperty("User-Agent", "TVBox/1.2.0")
+            if (destFile.exists() && destFile.length() > 0)
+                conn.setRequestProperty("Range", "bytes=${destFile.length()}-")
+            conn.connect()
+            val code = conn.responseCode
+            if (code != 200 && code != 206) throw Exception("HTTP $code")
+            val total = conn.contentLengthLong
+            val inp = conn.inputStream
+            val out = FileOutputStream(destFile, code == 206)
+            val buf = ByteArray(65536)
+            var downloaded = if (code == 206) destFile.length() else 0L
+            var read: Int
+            while (inp.read(buf).also { read = it } != -1) {
+                if (task.status == Status.CANCELLED) { out.close(); inp.close(); return@withContext }
+                out.write(buf, 0, read); downloaded += read
+                if (total > 0) {
+                    val pct = (downloaded * 100 / total).toInt()
+                    if (pct != task.progress) {
+                        task.progress = pct
+                        withContext(Dispatchers.Main) { onProgress(pct) }
+                    }
+                }
+            }
+            out.flush(); out.close(); inp.close()
+            task.status = Status.COMPLETED; task.localPath = destFile.absolutePath
+            withContext(Dispatchers.Main) { onDone(destFile.absolutePath) }
+        } catch (e: Exception) {
+            task.status = Status.FAILED; task.errorMsg = e.message ?: ""
+            Log.e(TAG, "下载失败: ${e.message}")
+            withContext(Dispatchers.Main) { onError(e.message ?: "下载失败") }
         }
     }
 
-    /**
-     * 继续下载
-     */
-    fun resumeDownload(id: String) {
-        val idx = downloadQueue.indexOfFirst { it.id == id }
-        if (idx >= 0) {
-            downloadQueue[idx] = downloadQueue[idx].copy(status = DownloadStatus.DOWNLOADING)
-        }
+    fun cancel(url: String) { tasks.find { it.url == url }?.status = Status.CANCELLED }
+    fun getTask(url: String): Task? = tasks.find { it.url == url }
+    fun getAllTasks(): List<Task> = tasks.toList()
+    fun clearCompleted() = tasks.removeAll { it.status == Status.COMPLETED }
+    fun deleteFile(url: String): Boolean {
+        val t = tasks.find { it.url == url } ?: return false
+        val ok = File(t.localPath).delete(); tasks.remove(t); return ok
     }
+    fun getCacheSize(context: Context): Long =
+        getDownloadDir(context).walkTopDown().sumOf { if (it.isFile) it.length() else 0L }
+    fun clearAll(context: Context) { getDownloadDir(context).deleteRecursively(); tasks.clear() }
 
-    /**
-     * 删除下载
-     */
-    fun removeDownload(id: String) {
-        downloadQueue.removeAll { it.id == id }
+    private fun getDestFile(context: Context, title: String, url: String): File {
+        val ext = url.substringAfterLast('.').lowercase()
+            .let { if (it.length <= 4 && it.matches(Regex("[a-z0-9]+"))) ".$it" else ".mp4" }
+        val safe = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(60)
+        val dir = getDownloadDir(context); dir.mkdirs()
+        return File(dir, "$safe$ext")
     }
-
-    /**
-     * 清除所有已完成的下载
-     */
-    fun clearCompleted() {
-        downloadQueue.removeAll { it.status == DownloadStatus.COMPLETED }
+    private fun getDownloadDir(context: Context): File {
+        val ext = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+        return if (ext != null && ext.canWrite()) File(ext, "TVBox") else File(context.cacheDir, "downloads")
     }
-
-    /**
-     * 获取本地下载文件路径
-     */
-    fun getLocalPath(id: String): String? {
-        val file = File(context.cacheDir, "downloads/$id.mp4")
-        return if (file.exists()) file.absolutePath else null
-    }
-
-    /**
-     * 清空下载缓存（设置页"清除缓存"调用）
-     */
-    fun clearCache() {
-        downloadCache.release()
-    }
-}
-
-/**
- * 下载服务（后台运行）
- *
- * 需在 AndroidManifest.xml 中声明：
- *
- * <service
- *     android:name=".core.VideoDownloadService"
- *     android:enabled="true"
- *     android:exported="false"
- *     android:foregroundServiceType="dataSync" />
- *
- * 需权限：
- *   - android:name="android.permission.WRITE_EXTERNAL_STORAGE"
- *   - android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
- */
-class VideoDownloadService : DownloadService(
-    FOREGROUND_NOTIFICATION_ID,
-    DEFAULT_FOREGROUND_NOTIFICATION_UPDATE_INTERVAL
-) {
-    companion object {
-        private const val FOREGROUND_NOTIFICATION_ID = 1
-    }
-
-    override fun getNotificationChannelId(): String = "video_download"
 }

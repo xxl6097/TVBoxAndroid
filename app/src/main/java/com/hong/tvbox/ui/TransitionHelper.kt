@@ -9,8 +9,6 @@ import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.view.animation.AnimationSet
 import android.view.animation.ScaleAnimation
-import android.view.animation.SlideInLeftAnimation
-import android.view.animation.SlideOutRightAnimation
 import android.view.animation.TranslateAnimation
 
 /**
@@ -20,20 +18,6 @@ import android.view.animation.TranslateAnimation
  * 支持共享元素过渡（Shared Element Transition）
  */
 object TransitionHelper {
-    
-    // ====== 内置动画类 ======
-    
-    class SlideInLeftAnimation : Animation() {
-        override fun onApplyTransformation(interpolatedTime: Float, t: android.view.animation.Transformation?) {
-            super.onApplyTransformation(interpolatedTime, t)
-        }
-    }
-    
-    class SlideOutRightAnimation : Animation() {
-        override fun onApplyTransformation(interpolatedTime: Float, t: android.view.animation.Transformation?) {
-            super.onApplyTransformation(interpolatedTime, t)
-        }
-    }
     
     // ====== Activity 启动动画 ======
     
@@ -91,11 +75,13 @@ object TransitionHelper {
         intent: Intent,
         vararg pairs: Pair<View, String>
     ) {
-        val options = ActivityOptions.makeSceneTransitionAnimation(
-            from,
-            *pairs.toTypedArray()
-        ).toBundle()
-        from.startActivity(intent, options)
+        try {
+            val androidPairs = pairs.map { (v, n) -> android.util.Pair.create(v, n) }.toTypedArray()
+            val options = ActivityOptions.makeSceneTransitionAnimation(from, *androidPairs).toBundle()
+            from.startActivity(intent, options)
+        } catch (_: Exception) {
+            from.startActivity(intent)
+        }
     }
     
     // ====== View 级动画 ======

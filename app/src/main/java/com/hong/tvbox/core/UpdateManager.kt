@@ -120,7 +120,7 @@ class UpdateManager(private val context: Context) {
                 publishedAt = publishedAt
             )
         } catch (e: Exception) {
-            Logger.d("检查更新失败: ${e.message}", e)
+            Logger.d(msg = "检查更新失败: ${e.message}", t = e)
             UpdateInfo(hasUpdate = false)
         }
     }
@@ -200,7 +200,7 @@ class UpdateManager(private val context: Context) {
      */
     private fun installApk(apkFile: File) {
         if (!apkFile.exists()) {
-            Logger.d("APK 文件不存在: ${apkFile.absolutePath}")
+            Logger.d(msg = "APK 文件不存在: ${apkFile.absolutePath}")
             return
         }
         

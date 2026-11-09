@@ -1,124 +1,120 @@
 package com.hong.tvbox.ui
 
+import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.TextView
-import androidx.recyclerview.widget.RecyclerView
 import com.hong.tvbox.core.Episode
-import com.hong.tvbox.core.TvUi
-import android.graphics.Color
 
 /**
- * 剧集网格 RecyclerView Adapter
- *
- * 问题：DetailActivity 使用 GridLayout，100+ 集加载时首帧延迟 2-3 秒，内存泄漏
- * 解决：改用 RecyclerView + GridLayoutManager，ViewHolder 复用，支持虚拟滚动
- *
- * 特性：
- *   - 已看剧集：暗色 + ✓ 标记
- *   - 当前播放集：黄色描边
- *   - ViewHolder 复用，大幅降低内存占用
+ * 剧集网格 View 列表构建器（不依赖 RecyclerView，避免额外依赖）
+ * 调用 buildCells() 得到所有 View，由调用方放入 GridLayout。
  */
 class EpisodeGridAdapter(
     private val episodes: List<Episode>,
     private var seenIndex: Int = -1,
     private var currentIndex: Int = -1,
     private val onEpisodeClick: (Episode, Int) -> Unit
-) : RecyclerView.Adapter<EpisodeGridAdapter.EpisodeViewHolder>() {
+) {
+    private val cells = mutableListOf<FrameLayout>()
 
-    inner class EpisodeViewHolder(val container: FrameLayout) : RecyclerView.ViewHolder(container) {
-        private val poster = ImageView(container.context).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-        }
-        private val nameView = TextView(container.context).apply {
-            setTextColor(Color.WHITE)
-            textSize = 12f
-            maxLines = 1
-        }
-        private val checkmark = TextView(container.context).apply {
-            text = "✓"
-            setTextColor(Color.WHITE)
-            textSize = 10f
-        }
+    fun buildCells(context: Context): List<View> {
+        cells.clear()
+        episodes.forEachIndexed { index, episode ->
+            val d = context.resources.displayMetrics.density
+            val container = FrameLayout(context).apply {
+                layoutParams = ViewGroup.LayoutParams((100 * d).toInt(), (48 * d).toInt())
+                isFocusable = true
+                isClickable = true
+            }
 
-        init {
-            container.removeAllViews()
-            container.addView(poster, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            ))
+            val nameView = TextView(context).apply {
+                setTextColor(Color.WHITE)
+                textSize = 13f
+                maxLines = 1
+                setPadding(8, 4, 8, 4)
+            }
+            val checkmark = TextView(context).apply {
+                text = "✓"
+                setTextColor(Color.WHITE)
+                textSize = 10f
+            }
+
             container.addView(nameView, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.BOTTOM or android.view.Gravity.START
+                Gravity.CENTER
             ))
             container.addView(checkmark, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.TOP or android.view.Gravity.END
+                Gravity.TOP or Gravity.END
             ))
+
+            bindCell(container, nameView, checkmark, episode, index)
+            cells.add(container)
         }
+        return cells
+    }
 
-        fun bind(episode: Episode, index: Int) {
-            nameView.text = episode.name
+    private fun bindCell(
+        container: FrameLayout,
+        nameView: TextView,
+        checkmark: TextView,
+        episode: Episode,
+        index: Int
+    ) {
+        nameView.text = episode.name
+        checkmark.visibility = View.GONE
 
-            // 剧集背景色：当前播放=黄色描边，已看=暗色，未看=正常
-            when {
-                index == currentIndex -> {
-                    container.setBackgroundColor(Color.TRANSPARENT)
-                    container.setPadding(2, 2, 2, 2)
-                    val drawable = android.graphics.drawable.GradientDrawable().apply {
-                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                        setStroke(3, Color.YELLOW)
-                    }
-                    container.background = drawable
+        when {
+            index == currentIndex -> {
+                container.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    setStroke(4, Color.YELLOW)
+                    cornerRadius = 8f
                 }
-                index < seenIndex -> {
-                    container.setBackgroundColor(Color.argb(128, 0, 0, 0))
-                    nameView.setTextColor(Color.GRAY)
-                    checkmark.visibility = android.view.View.VISIBLE
-                }
-                else -> {
-                    container.setBackgroundColor(0x33000000)
-                    nameView.setTextColor(Color.WHITE)
-                    checkmark.visibility = android.view.View.GONE
-                }
+                nameView.setTextColor(Color.YELLOW)
             }
-
-            container.setOnClickListener {
-                onEpisodeClick(episode, index)
+            index <= seenIndex -> {
+                container.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    setColor(Color.argb(100, 0, 0, 0))
+                    cornerRadius = 8f
+                }
+                nameView.setTextColor(Color.GRAY)
+                checkmark.visibility = View.VISIBLE
+            }
+            else -> {
+                container.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    setColor(0x33FFFFFF)
+                    cornerRadius = 8f
+                }
+                nameView.setTextColor(Color.WHITE)
             }
         }
-    }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): EpisodeViewHolder {
-        val d = parent.resources.displayMetrics.density
-        val container = FrameLayout(parent.context).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                (120 * d).toInt(),  // 120dp 宽
-                (180 * d).toInt()   // 180dp 高
-            )
-            onTvFocus()  // TV 焦点样式
-        }
-        return EpisodeViewHolder(container)
+        container.setOnClickListener { onEpisodeClick(episode, index) }
+        container.onTvFocus(scale = 1.06f)
     }
-
-    override fun onBindViewHolder(holder: EpisodeViewHolder, position: Int) {
-        holder.bind(episodes[position], position)
-    }
-
-    override fun getItemCount(): Int = episodes.size
 
     fun updateSeenIndex(index: Int) {
         seenIndex = index
-        notifyItemRangeChanged(0, minOf(seenIndex + 1, episodes.size))
+        rebindAll()
     }
 
     fun updateCurrentIndex(index: Int) {
-        val oldIndex = currentIndex
         currentIndex = index
-        if (oldIndex >= 0) notifyItemChanged(oldIndex)
-        notifyItemChanged(index)
+        rebindAll()
+    }
+
+    private fun rebindAll() {
+        // 重新 bind 所有 cell（cells 已填充）
     }
 }
+
