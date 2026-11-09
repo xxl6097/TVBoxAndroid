@@ -24,6 +24,14 @@ import com.hong.tvbox.data.HistoryStore
 import kotlinx.coroutines.launch
 
 /**
+ * 剧集数据类
+ */
+data class Episode(
+    val url: String,
+    val name: String
+)
+
+/**
  * 播放器页面 - 完整移植自 Player.ets
  * 实现：ExoPlayer + 播放地址解析 + 控制条 + 进度条 + 切集 + 历史
  */
@@ -133,11 +141,28 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var centerTip: TextView
     /** 播放结束提示层 */
     private lateinit var endedView: LinearLayout
+    /** 剧集列表抽屉（侧边栏） */
+    private lateinit var episodeDrawer: android.widget.FrameLayout
+    private lateinit var episodeListView: android.widget.GridView
+    /** 选集按钮 */
+    private lateinit var osdEpisodeBtn: Button
 
     private var isMuted = false
     private var volumeBeforeMute = 1.0f
     /** 是否已播放完成 */
     private var isEnded = false
+    /** 剧集列表是否显示 */
+    private var isEpisodeDrawerShown = false
+    /** 长按快进/快退的连续移动间隔（毫秒） */
+    private var continuousSeekStep = 0L
+    private val continuousSeekRunnable = object : Runnable {
+        override fun run() {
+            if (continuousSeekStep != 0L) {
+                seekBy(continuousSeekStep)
+                handler.postDelayed(this, 200)  // 每200ms移动一次
+            }
+        }
+    }
 
     // ---- 定时关闭 ----
     private val timerOptions = intArrayOf(0, 15, 30, 45, 60, 90, 120) // 分钟，0=不关
@@ -480,14 +505,46 @@ class PlayerActivity : AppCompatActivity() {
         }
         controlRow.addView(osdPrevBtn)
 
-        // 快退 / 快进 10 秒（遥控器左右键的等价按钮）
-        controlRow.addView(osdButton("−  10 秒") { seekBy(-10_000L) })
+        // 快退 / 快进 10 秒（支持长按持续移动）
+        val seekBackBtn = Button(this).apply {
+            text = "−  10 秒"
+            setOnClickListener { seekBy(-10_000L) }
+            setOnLongClickListener {
+                startContinuousSeek(-10_000L)
+                true
+            }
+            setOnTouchListener { v, event ->
+                if (event.action == android.view.MotionEvent.ACTION_UP || 
+                    event.action == android.view.MotionEvent.ACTION_CANCEL) {
+                    stopContinuousSeek()
+                }
+                false
+            }
+        }
+        controlRow.addView(seekBackBtn)
+        
         osdPlayPauseBtn = Button(this).apply {
             text = "播放"
             setOnClickListener { togglePlay() }
         }
         controlRow.addView(osdPlayPauseBtn)
-        controlRow.addView(osdButton("+  10 秒") { seekBy(10_000L) })
+        
+        val seekForwardBtn = Button(this).apply {
+            text = "+  10 秒"
+            setOnClickListener { seekBy(10_000L) }
+            setOnLongClickListener {
+                startContinuousSeek(10_000L)
+                true
+            }
+            setOnTouchListener { v, event ->
+                if (event.action == android.view.MotionEvent.ACTION_UP || 
+                    event.action == android.view.MotionEvent.ACTION_CANCEL) {
+                    stopContinuousSeek()
+                }
+                false
+            }
+        }
+        controlRow.addView(seekForwardBtn)
 
         osdNextBtn = Button(this).apply {
             text = if (isLiveMode) "下一台" else "下一集"
@@ -516,6 +573,14 @@ class PlayerActivity : AppCompatActivity() {
         // 声道切换：立体声 / 左 / 右
         osdChannelBtn = osdButton("声道 ${channelNames[channelIdx]}") { cycleChannel() }
         controlRow.addView(osdChannelBtn)
+
+        // 选集按钮（不显示在直播模式）
+        if (!isLiveMode && allEpisodes.size > 1) {
+            osdEpisodeBtn = osdButton("选集 ${currentEpisodeIndex + 1}/${allEpisodes.size}") {
+                toggleEpisodeDrawer()
+            }
+            controlRow.addView(osdEpisodeBtn)
+        }
 
         osdLayout.addView(controlRow)
 
@@ -568,6 +633,62 @@ class PlayerActivity : AppCompatActivity() {
 
         endedView = endedLayout
         root.addView(endedLayout, android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+
+        // ============ 剧集列表抽屉（右侧边栏）============
+        // 点选集按钮从右侧滑出，显示所有剧集，点击快速切集
+        val drawerBg = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#CC000000"))
+            visibility = View.GONE
+            setOnClickListener { hideEpisodeDrawer() }  // 点击遮罩关闭
+        }
+        
+        val drawerContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#1E1E1E"))
+            setPadding(dp(16), dp(24), dp(16), dp(24))
+        }
+        
+        // 标题行
+        val drawerTitle = TextView(this).apply {
+            text = "选择剧集 ${currentEpisodeIndex + 1}/${allEpisodes.size}"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 0, 0, dp(16))
+        }
+        drawerContent.addView(drawerTitle)
+        
+        // 剧集网格
+        episodeListView = android.widget.GridView(this).apply {
+            numColumns = 5  // 一行显示5集
+            horizontalSpacing = dp(8)
+            verticalSpacing = dp(8)
+            adapter = EpisodeAdapter()
+            setOnItemClickListener { _, _, position, _ ->
+                if (position != currentEpisodeIndex) {
+                    switchToEpisode(position)
+                }
+                hideEpisodeDrawer()
+            }
+        }
+        drawerContent.addView(episodeListView, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
+        
+        // 抽屉容器（从右侧滑入）
+        drawerBg.addView(drawerContent, android.widget.FrameLayout.LayoutParams(
+            dp(360),  // 固定宽度
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.Gravity.END
+        ))
+        
+        episodeDrawer = drawerBg
+        root.addView(episodeDrawer, android.widget.FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
@@ -731,6 +852,18 @@ class PlayerActivity : AppCompatActivity() {
         }
         showTip("音量 ${(next * 100).toInt()}%")
         showOsd()
+    }
+
+    /** 开始连续快进/快退 */
+    private fun startContinuousSeek(step: Long) {
+        continuousSeekStep = step
+        handler.post(continuousSeekRunnable)
+    }
+
+    /** 停止连续快进/快退 */
+    private fun stopContinuousSeek() {
+        continuousSeekStep = 0L
+        handler.removeCallbacks(continuousSeekRunnable)
     }
 
     private fun toggleMute() {
@@ -1420,6 +1553,72 @@ class PlayerActivity : AppCompatActivity() {
         player?.release()
         prevPlayer?.release()
         player = null
+    }
+
+    /** 切换到指定剧集 */
+    private fun switchToEpisode(index: Int) {
+        if (index == currentEpisodeIndex) return
+        currentEpisodeIndex = index
+        startEpisode(allEpisodes[index])
+        // 更新选集按钮文字
+        if (this::osdEpisodeBtn.isInitialized) {
+            osdEpisodeBtn.text = "选集 ${currentEpisodeIndex + 1}/${allEpisodes.size}"
+        }
+    }
+
+    /** 显示剧集列表抽屉 */
+    private fun toggleEpisodeDrawer() {
+        if (isEpisodeDrawerShown) {
+            hideEpisodeDrawer()
+        } else {
+            showEpisodeDrawer()
+        }
+    }
+
+    private fun showEpisodeDrawer() {
+        episodeDrawer.visibility = View.VISIBLE
+        isEpisodeDrawerShown = true
+        // 刷新列表以高亮当前集
+        (episodeListView.adapter as? EpisodeAdapter)?.notifyDataSetChanged()
+    }
+
+    private fun hideEpisodeDrawer() {
+        episodeDrawer.visibility = View.GONE
+        isEpisodeDrawerShown = false
+    }
+
+    /** 剧集列表适配器 */
+    private inner class EpisodeAdapter : android.widget.BaseAdapter() {
+        override fun getCount(): Int = allEpisodes.size
+        override fun getItem(position: Int): Any = allEpisodes[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val view = convertView ?: TextView(this@PlayerActivity).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(48)
+                )
+                gravity = android.view.Gravity.CENTER
+                textSize = 14f
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+            }
+            
+            val textView = view as TextView
+            val episode = allEpisodes[position]
+            textView.text = episode.name
+            
+            // 高亮当前播放的集
+            if (position == currentEpisodeIndex) {
+                textView.setBackgroundColor(Color.parseColor("#FF6200EE"))
+                textView.setTextColor(Color.WHITE)
+            } else {
+                textView.setBackgroundColor(Color.parseColor("#2C2C2C"))
+                textView.setTextColor(Color.parseColor("#CCCCCC"))
+            }
+            
+            return view
+        }
     }
 
     private fun dp(value: Int): Int {
