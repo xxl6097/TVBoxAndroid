@@ -40,6 +40,9 @@ object UpdateManager {
      */
     val PROXY_LIST = mutableListOf(
         "https://ghfast.top/",         // ghfast — 国内最稳定
+        "https://gh-proxy.com/",        // gh-proxy.com
+        "https://ghproxy.1888866.xyz/", // ghproxy.1888866
+        "https://github.moeyy.xyz/",    // moeyy
         "https://ghproxy.cn/",         // ghproxy.cn
         "https://mirror.ghproxy.com/", // mirror.ghproxy
         "https://hub.gitmirror.com/",  // gitmirror
