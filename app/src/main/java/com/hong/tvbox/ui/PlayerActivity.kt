@@ -24,14 +24,6 @@ import com.hong.tvbox.data.HistoryStore
 import kotlinx.coroutines.launch
 
 /**
- * 剧集数据类
- */
-data class Episode(
-    val url: String,
-    val name: String
-)
-
-/**
  * 播放器页面 - 完整移植自 Player.ets
  * 实现：ExoPlayer + 播放地址解析 + 控制条 + 进度条 + 切集 + 历史
  */
@@ -1555,11 +1547,26 @@ class PlayerActivity : AppCompatActivity() {
         player = null
     }
 
-    /** 切换到指定剧集 */
+    /** 切换到指定剧集（供剧集列表面板调用） */
     private fun switchToEpisode(index: Int) {
         if (index == currentEpisodeIndex) return
+        // 保存当前进度
+        savePosition()
         currentEpisodeIndex = index
-        startEpisode(allEpisodes[index])
+        if (isLiveMode) {
+            prevPlayer?.release()
+            prevPlayer = player
+            player = null
+        } else {
+            player?.release()
+            player = null
+        }
+        isPrepared = false
+        isPlaying = false
+        val episode = allEpisodes[index]
+        loadingText.text = if (isLiveMode) "正在切换频道…" else "正在切换到第${index + 1}集…"
+        Toast.makeText(this, "${episode.name}", Toast.LENGTH_SHORT).show()
+        startPlayback()
         // 更新选集按钮文字
         if (this::osdEpisodeBtn.isInitialized) {
             osdEpisodeBtn.text = "选集 ${currentEpisodeIndex + 1}/${allEpisodes.size}"
