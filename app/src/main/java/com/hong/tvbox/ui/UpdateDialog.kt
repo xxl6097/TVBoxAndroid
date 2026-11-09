@@ -228,9 +228,14 @@ class UpdateDialog(
      * 显示安装确认对话框
      */
     private fun showInstallConfirm(apkFile: File) {
+        val msg = buildString {
+            append("APK 已下载完成，点「立即安装」进行安装。\n\n")
+            append("文件: ${apkFile.name}\n\n")
+            append("⚠️  如果点安装后没有反应，请在系统设置中开启\n「安装未知应用」权限后重试。")
+        }
         AlertDialog.Builder(context)
             .setTitle("下载完成")
-            .setMessage("APK 已下载完成，是否立即安装？\n\n文件: ${apkFile.name}")
+            .setMessage(msg)
             .setPositiveButton("立即安装") { _, _ ->
                 UpdateManager.installApk(context, apkFile)
             }

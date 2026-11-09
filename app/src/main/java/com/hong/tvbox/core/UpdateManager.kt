@@ -245,6 +245,29 @@ object UpdateManager {
 
     fun installApk(context: Context, apkFile: File) {
         if (!apkFile.exists()) { Log.e(TAG, "APK 不存在: ${apkFile.absolutePath}"); return }
+
+        // Android 8.0+ 需要先检查「安装未知应用」权限，没有则跳转设置页授权
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                Log.w(TAG, "缺少 REQUEST_INSTALL_PACKAGES 权限，跳转授权页")
+                val settingsIntent = Intent(
+                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${context.packageName}")
+                ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+                try {
+                    context.startActivity(settingsIntent)
+                } catch (e: Exception) {
+                    // 部分设备不支持该 Intent，降级到应用详情页
+                    val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(fallback)
+                }
+                return
+            }
+        }
+
         val intent = Intent(Intent.ACTION_VIEW).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
