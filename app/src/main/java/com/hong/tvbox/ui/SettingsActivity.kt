@@ -19,6 +19,7 @@ import com.hong.tvbox.core.CmsClient
 import com.hong.tvbox.core.HttpClient
 import com.hong.tvbox.core.LiveSource
 import com.hong.tvbox.core.Site
+import com.hong.tvbox.core.UpdateManager
 import com.hong.tvbox.core.WebdavClient
 import com.hong.tvbox.core.WebdavSource
 import com.hong.tvbox.data.ConfigStore
@@ -574,6 +575,8 @@ class SettingsActivity : AppCompatActivity() {
         card.addView(sRow("片尾跳过", skipLabel(configStore.outroSkipSec())) { pickSkip("片尾跳过") { configStore.setOutroSkipSec(it); switchNav("about") } })
         card.addView(sDiv())
         card.addView(sRow("版本", "v${versionName()}"))
+        card.addView(sDiv())
+        card.addView(sRow("检查更新", "查看最新版本", arrow = true) { checkForUpdate() })
         card.addView(sDiv())
         card.addView(sRow("隐私政策", "查看", arrow = true) { showPrivacyDialog() })
 
@@ -1159,6 +1162,48 @@ class SettingsActivity : AppCompatActivity() {
                 Toast.makeText(this, "已清除", Toast.LENGTH_SHORT).show()
             }
             .show()
+    }
+    
+    /**
+     * 检查 GitHub 版本更新
+     */
+    private fun checkForUpdate() {
+        val progressDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("检查更新")
+            .setMessage("正在检查最新版本...")
+            .setCancelable(false)
+            .create()
+        
+        progressDialog.show()
+        
+        lifecycleScope.launch {
+            try {
+                val updateManager = UpdateManager(this@SettingsActivity)
+                val updateInfo = updateManager.checkUpdate()
+                
+                progressDialog.dismiss()
+                
+                if (updateInfo.hasUpdate) {
+                    // 有新版本，显示更新对话框
+                    UpdateDialog(this@SettingsActivity, updateInfo).show()
+                } else {
+                    // 已是最新版本
+                    androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle("已是最新版本")
+                        .setMessage("当前版本 v${updateInfo.currentVersion} 已是最新版本。")
+                        .setPositiveButton("确定", null)
+                        .show()
+                }
+            } catch (e: Exception) {
+                progressDialog.dismiss()
+                
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle("检查更新失败")
+                    .setMessage("无法连接到 GitHub：${e.message}\n\n请检查网络连接后重试。")
+                    .setPositiveButton("确定", null)
+                    .show()
+            }
+        }
     }
 
     override fun onDestroy() {
