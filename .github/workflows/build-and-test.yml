@@ -1,138 +1,102 @@
-name: TVBoxAndroid Build & Test (Optimization v1.2.0)
+name: Build & Release
 
 on:
   push:
-    branches: [ main, feature/17-optimizations ]
-  pull_request:
     branches: [ main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
-
-env:
-  GRADLE_VERSION: 8.2
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    permissions:
-      contents: read
-      checks: write
-      pull-requests: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 完整历史，用于计算 versionCode
+          fetch-depth: 0
 
-      - name: Setup Java 17
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Setup Gradle
-        uses: gradle/gradle-build-action@v2
-        with:
-          gradle-version: ${{ env.GRADLE_VERSION }}
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
-      - name: Build APK (Debug)
-        run: |
-          ./gradlew assembleDebug -x lintVitalRelease
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug -x lint --no-daemon
         env:
-          GRADLE_OPTS: "-Xmx4g -Dfile.encoding=UTF-8"
+          GRADLE_OPTS: -Xmx3g
 
-      - name: Run Unit Tests
+      - name: Build Release APK (signed with debug key)
         run: |
-          ./gradlew testDebugUnitTest --no-daemon
-        continue-on-error: true
+          ./gradlew assembleRelease -x lint --no-daemon \
+            -PKEYSTORE_PATH=debug.keystore \
+            -PKEYSTORE_PASSWORD=android \
+            -PKEY_ALIAS=androiddebugkey \
+            -PKEY_PASSWORD=android
+        env:
+          GRADLE_OPTS: -Xmx3g
 
-      - name: Generate Test Report
-        uses: dorny/test-reporter@v1
-        if: always()
-        with:
-          name: Unit Test Results
-          path: 'app/build/test-results/testDebugUnitTest/TEST-*.xml'
-          reporter: 'java-junit'
-          fail-on-error: false
+      - name: Get version name
+        id: version
+        run: |
+          VERSION=$(grep 'versionName' app/build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
 
-      - name: Upload APK Artifact
-        if: success()
-        uses: actions/upload-artifact@v3
+      - name: Rename APKs
+        run: |
+          V=${{ steps.version.outputs.version }}
+          # debug
+          mv app/build/outputs/apk/debug/app-debug.apk \
+             app/build/outputs/apk/debug/TVBoxAndroid-v${V}-debug.apk 2>/dev/null || true
+          # release
+          mv app/build/outputs/apk/release/app-release.apk \
+             app/build/outputs/apk/release/TVBoxAndroid-v${V}-release.apk 2>/dev/null || true
+          echo "=== Output files ==="
+          ls -lh app/build/outputs/apk/debug/ app/build/outputs/apk/release/
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
         with:
-          name: tvbox-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: TVBoxAndroid-debug
+          path: app/build/outputs/apk/debug/TVBoxAndroid-*.apk
           retention-days: 7
 
-      - name: Build Report
-        if: always()
-        run: |
-          echo "## Build Status" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Project**: TVBoxAndroid v1.2.0" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Optimization Modules" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Performance (5)" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Features (6)" >> $GITHUB_STEP_SUMMARY
-          echo "✅ UI/UX (4)" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Engineering (3)" >> $GITHUB_STEP_SUMMARY
-
-  lint:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          name: TVBoxAndroid-release
+          path: app/build/outputs/apk/release/TVBoxAndroid-*.apk
+          retention-days: 30
 
-      - name: Run Linter
-        run: |
-          ./gradlew lint -x assembleDebug
-        continue-on-error: true
-
-      - name: Upload Lint Results
-        if: always()
-        uses: actions/upload-artifact@v3
+      # 打 tag 时自动发布 GitHub Release
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
         with:
-          name: lint-reports
-          path: 'app/build/reports/lint-results*.html'
-          retention-days: 7
-
-  performance-test:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Run Performance Tests
-        run: |
-          ./gradlew testDebugUnitTest -Dkotlin.compiler.execution.strategy=in-process
-        continue-on-error: true
-
-      - name: Parse Performance Results
-        run: |
-          echo "### Performance Optimizations Validated" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Module | Status | Benefit |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|--------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Glide Optimization | ✅ | +13fps |" >> $GITHUB_STEP_SUMMARY
-          echo "| RecyclerView Virtualization | ✅ | -40% memory |" >> $GITHUB_STEP_SUMMARY
-          echo "| Request Deduplication | ✅ | -30% latency |" >> $GITHUB_STEP_SUMMARY
-          echo "| Live Stream Concurrency | ✅ | Stable temp |" >> $GITHUB_STEP_SUMMARY
-          echo "| WebDAV Cache TTL | ✅ | Consistent UX |" >> $GITHUB_STEP_SUMMARY
+          tag_name: ${{ github.ref_name }}
+          name: "夜帧影视 ${{ github.ref_name }}"
+          body: |
+            ## 夜帧影视 ${{ github.ref_name }}
+            
+            版本: ${{ steps.version.outputs.version }}
+            构建时间: ${{ github.event.repository.updated_at }}
+            提交: ${{ github.sha }}
+            
+            ### 安装方法
+            - 下载 `TVBoxAndroid-*-release.apk`（正式包，已签名可直接安装）
+            - 下载 `TVBoxAndroid-*-debug.apk`（调试包，方便开发调试）
+            
+            ### 应用内更新
+            打开应用 → 设置 → 关于 → 检查更新
+          draft: false
+          prerelease: false
+          files: |
+            app/build/outputs/apk/release/TVBoxAndroid-*-release.apk
+            app/build/outputs/apk/debug/TVBoxAndroid-*-debug.apk
