@@ -20,7 +20,9 @@ import com.hong.tvbox.core.HttpClient
 import com.hong.tvbox.core.LiveSource
 import com.hong.tvbox.core.Site
 import com.hong.tvbox.core.UpdateManager
+import com.hong.tvbox.core.QRCodeGenerator
 import com.hong.tvbox.core.WebdavClient
+import com.hong.tvbox.core.WebdavPairServer
 import com.hong.tvbox.core.WebdavSource
 import com.hong.tvbox.data.ConfigStore
 import com.hong.tvbox.data.HistoryStore
@@ -64,6 +66,8 @@ class SettingsActivity : AppCompatActivity() {
     private var showPresets = false
 
     private var qrServer: com.hong.tvbox.core.QrServer? = null
+    private var wdPairServer: WebdavPairServer? = null
+    private var wdPairDialog: androidx.appcompat.app.AlertDialog? = null
     private var qrDialog: androidx.appcompat.app.AlertDialog? = null
 
     companion object {
@@ -314,7 +318,11 @@ class SettingsActivity : AppCompatActivity() {
         col.addView(groupLabel("网盘"))
         val card = cardGroup()
         val sources = configStore.getWebdavSources()
-        card.addView(sRow("添加挂载", "${sources.size} 个已挂载", arrow = true) { showWdEdit(null) })
+        // 添加挂载行：左侧手动输入，右侧📷扫码
+        card.addView(sRowQr("添加挂载", "${sources.size} 个已挂载",
+            onEdit = { showWdEdit(null) },
+            onQr   = { showWdQrPair() }
+        ))
         if (sources.isEmpty()) {
             card.addView(sDiv())
             card.addView(subText("挂载 WebDAV 网盘（极空间 / 群晖 / AList 等）后，可在首页「网盘」里浏览并播放。"))
@@ -1159,6 +1167,123 @@ class SettingsActivity : AppCompatActivity() {
 
     // ==================== 网盘源编辑 ====================
 
+    /**
+     * 弹出 WebDAV 扫码配对对话框
+     * TV 端显示二维码，手机扫码 → 填写地址/账号/密码 → 自动保存并刷新列表
+     */
+    private fun showWdQrPair() {
+        // 停掉旧的配对服务
+        wdPairServer?.stop()
+        wdPairServer = null
+        wdPairDialog?.dismiss()
+        wdPairDialog = null
+
+        val server = WebdavPairServer(this)
+        wdPairServer = server
+
+        val pairUrl = server.pairUrl()
+        if (pairUrl == null) {
+            Toast.makeText(this, "无法获取 Wi-Fi IP，请确认已连接 Wi-Fi", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val qrBmp = QRCodeGenerator.generate(pairUrl, 480)
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(16), dp(24), dp(8))
+        }
+
+        val qrView = ImageView(this).apply {
+            setImageBitmap(qrBmp)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(android.graphics.Color.WHITE)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        container.addView(qrView, LinearLayout.LayoutParams(dp(280), dp(280)).also {
+            it.gravity = Gravity.CENTER_HORIZONTAL
+        })
+
+        container.addView(TextView(this).apply {
+            text = "用手机扫一扫
+在手机上填写 WebDAV 地址/账号/密码"
+            textSize = 14f
+            setTextColor(TvUi.SUB)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(12), 0, dp(4))
+        })
+
+        container.addView(TextView(this).apply {
+            text = pairUrl
+            textSize = 11f
+            setTextColor(TvUi.DIM)
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.MIDDLE
+        })
+
+        val statusText = TextView(this).apply {
+            text = "⏳ 等待手机端提交..."
+            textSize = 13f
+            setTextColor(TvUi.SELECTED)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, 0)
+        }
+        container.addView(statusText)
+
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("扫码添加 WebDAV 挂载")
+            .setView(container)
+            .setNegativeButton("取消") { _, _ ->
+                wdPairServer?.stop()
+                wdPairServer = null
+            }
+            .setOnDismissListener {
+                wdPairServer?.stop()
+                wdPairServer = null
+                wdPairDialog = null
+            }
+            .create()
+        wdPairDialog = dialog
+        dialog.show()
+
+        // 启动 HTTP 服务 + 轮询结果
+        lifecycleScope.launch {
+            server.start()
+        }
+        lifecycleScope.launch {
+            while (wdPairServer != null) {
+                kotlinx.coroutines.delay(800)
+                val result = server.takePending() ?: continue
+                val src = WebdavSource(
+                    id = "",
+                    name = result.name.ifEmpty {
+                        result.url.substringAfter("://").substringBefore("/").substringBefore(":")
+                    },
+                    url = result.url,
+                    user = result.user,
+                    pass = result.pass,
+                    root = result.root
+                )
+                configStore.saveWebdavSource(src)
+                runOnUiThread {
+                    statusText.text = "✅ 已保存「${src.name}」！"
+                    statusText.setTextColor(0xFF4CAF50.toInt())
+                }
+                kotlinx.coroutines.delay(1500)
+                runOnUiThread {
+                    dialog.dismiss()
+                    switchNav("webdav")
+                    Toast.makeText(this@SettingsActivity, "网盘「${src.name}」已挂载", Toast.LENGTH_SHORT).show()
+                }
+                wdPairServer?.stop()
+                wdPairServer = null
+                break
+            }
+        }
+    }
+
     private fun showWdEdit(src: WebdavSource?) {
         val isNew = src == null
         val name = EditText(this).apply { setText(src?.name ?: ""); hint = "名称（可留空，默认取域名）" }
@@ -1321,6 +1446,9 @@ class SettingsActivity : AppCompatActivity() {
         qrDialog?.dismiss()
         qrServer?.stop()
         qrServer = null
+        wdPairDialog?.dismiss()
+        wdPairServer?.stop()
+        wdPairServer = null
     }
 
     private fun dp(value: Int): Int {
