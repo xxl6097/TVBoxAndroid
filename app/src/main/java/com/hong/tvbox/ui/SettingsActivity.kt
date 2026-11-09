@@ -597,6 +597,12 @@ class SettingsActivity : AppCompatActivity() {
         card.addView(sDiv())
         card.addView(sRow("检查更新", "查看最新版本", arrow = true) { checkForUpdate() })
         card.addView(sDiv())
+        val curProxy = com.hong.tvbox.core.UpdateManager.PROXY_LIST
+            .getOrNull(com.hong.tvbox.core.UpdateManager.selectedProxyIndex)
+            ?.let { if (it.isEmpty()) "直连" else it.removeSuffix("/").substringAfterLast("/") }
+            ?: "直连"
+        card.addView(sRow("下载代理", curProxy, arrow = true) { showProxyPicker() })
+        card.addView(sDiv())
         card.addView(sRow("隐私政策", "查看", arrow = true) { showPrivacyDialog() })
 
         val crash = com.hong.tvbox.TvBoxApp.readCrash(this)
@@ -1408,7 +1414,35 @@ class SettingsActivity : AppCompatActivity() {
     /**
      * 检查 GitHub 版本更新
      */
-    private fun checkForUpdate() {
+    /**
+     * 代理切换对话框
+     * 让用户手动选择 GitHub 下载代理
+     */
+    private fun showProxyPicker() {
+        val proxies = com.hong.tvbox.core.UpdateManager.PROXY_LIST
+        val labels = proxies.map { url ->
+            if (url.isEmpty()) "直连（不使用代理）"
+            else url.removeSuffix("/").substringAfterLast("/").ifEmpty { url }
+        }.toTypedArray()
+
+        val current = com.hong.tvbox.core.UpdateManager.selectedProxyIndex
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("选择下载代理")
+            .setSingleChoiceItems(labels, current) { dialog, which: Int ->
+                com.hong.tvbox.core.UpdateManager.selectedProxyIndex = which
+                val selected = labels[which]
+                Toast.makeText(this, "已选择代理: $selected", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+                // 刷新设置页显示
+                switchNav("about")
+            }
+            .setNegativeButton("取消", null)
+            .create()
+            .show()
+    }
+
+        private fun checkForUpdate() {
         val progressDialog = androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("检查更新")
             .setMessage("正在检查最新版本...")
@@ -1419,16 +1453,20 @@ class SettingsActivity : AppCompatActivity() {
         
         lifecycleScope.launch {
             try {
-                val updateManager = UpdateManager(this@SettingsActivity)
-                val updateInfo = updateManager.checkUpdate()
+                val updateInfo = UpdateManager.checkUpdate(this@SettingsActivity)
+                
+                // 如果有更新，先探测可用代理（加速下载）
+                if (updateInfo.hasUpdate && updateInfo.downloadUrl.isNotEmpty()) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        UpdateManager.findFastestProxy(updateInfo.downloadUrl)
+                    }
+                }
                 
                 progressDialog.dismiss()
                 
                 if (updateInfo.hasUpdate) {
-                    // 有新版本，显示更新对话框
                     UpdateDialog(this@SettingsActivity, updateInfo).show()
                 } else {
-                    // 已是最新版本
                     androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                         .setTitle("已是最新版本")
                         .setMessage("当前版本 v${updateInfo.currentVersion} 已是最新版本。")

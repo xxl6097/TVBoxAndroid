@@ -1,271 +1,288 @@
 package com.hong.tvbox.core
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.util.Log
 import androidx.core.content.FileProvider
+import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
- * GitHub 版本更新管理器
- * 
- * 功能:
- * - 检查 GitHub Releases 最新版本
- * - 比较版本号（语义化版本）
- * - 下载 APK 并安装
- * - 支持后台下载与通知
- * 
- * 用法:
- * ```kotlin
- * val updateManager = UpdateManager(context)
- * val updateInfo = updateManager.checkUpdate()
- * if (updateInfo.hasUpdate) {
- *     updateManager.downloadAndInstall(updateInfo)
- * }
- * ```
+ * GitHub Release 自动更新管理器
+ *
+ * 功能：
+ * - GitHub Releases API 检查新版本
+ * - 国内代理加速下载（多镜像自动切换）
+ * - 实时下载进度回调
+ * - FileProvider 安装（Android 7.0+）
  */
-class UpdateManager(private val context: Context) {
-    
-    companion object {
-        private const val GITHUB_OWNER = "xxl6097"
-        private const val GITHUB_REPO = "TVBoxAndroid"
-        private const val GITHUB_API_BASE = "https://api.github.com"
-        
-        // 当前应用版本（从 BuildConfig 读取）
-        private val CURRENT_VERSION = android.os.Build.VERSION.SDK_INT.toString() // 临时占位
-    }
-    
+object UpdateManager {
+
+    private const val TAG = "TVBoxUpdate"
+    private const val GITHUB_OWNER = "xxl6097"
+    private const val GITHUB_REPO = "TVBoxAndroid"
+    private const val GITHUB_API =
+        "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/latest"
+
     /**
-     * 版本信息数据类
+     * GitHub 下载代理镜像列表（按优先级排序）
+     * 格式：前缀 + 完整 GitHub URL → 代理后地址
+     * 空字符串 = 直连
      */
+    val PROXY_LIST = mutableListOf(
+        "https://ghfast.top/",         // ghfast — 国内最稳定
+        "https://ghproxy.cn/",         // ghproxy.cn
+        "https://mirror.ghproxy.com/", // mirror.ghproxy
+        "https://hub.gitmirror.com/",  // gitmirror
+        "",                            // 直连（境外/翻墙用户）
+    )
+
+    /** 当前选用代理下标（默认 0 = ghfast） */
+    var selectedProxyIndex: Int = 0
+
+    // ─── 数据模型 ─────────────────────────────────────────────────────────────
+
+    data class ReleaseInfo(
+        @SerializedName("tag_name") val tagName: String = "",
+        @SerializedName("body") val body: String = "",
+        @SerializedName("published_at") val publishedAt: String = "",
+        @SerializedName("assets") val assets: List<Asset> = emptyList()
+    )
+
+    data class Asset(
+        @SerializedName("name") val name: String = "",
+        @SerializedName("browser_download_url") val downloadUrl: String = "",
+        @SerializedName("size") val size: Long = 0L
+    )
+
     data class UpdateInfo(
         val hasUpdate: Boolean = false,
-        val latestVersion: String = "",
         val currentVersion: String = "",
+        val latestVersion: String = "",
         val releaseNotes: String = "",
-        val downloadUrl: String = "",
-        val fileSize: Long = 0,
+        val downloadUrl: String = "",  // 原始 GitHub URL，下载时自动叠加代理
+        val fileSize: Long = 0L,
         val publishedAt: String = ""
     )
-    
+
+    // ─── 代理工具 ─────────────────────────────────────────────────────────────
+
+    /** 为 GitHub URL 叠加代理前缀 */
+    fun proxyUrl(rawUrl: String, proxyIndex: Int = selectedProxyIndex): String {
+        val prefix = PROXY_LIST.getOrElse(proxyIndex) { "" }
+        return if (prefix.isEmpty()) rawUrl else "$prefix$rawUrl"
+    }
+
     /**
-     * 检查更新
-     * 
-     * @return UpdateInfo 包含是否有更新和版本详情
+     * 探测最快代理（HEAD 请求，4s 超时），结果写入 selectedProxyIndex
+     * @param testUrl 用来探测的完整 GitHub URL（通常用 APK 下载链接）
      */
-    suspend fun checkUpdate(): UpdateInfo = withContext(Dispatchers.IO) {
-        try {
-            // 获取最新 Release 信息
-            val apiUrl = "$GITHUB_API_BASE/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/latest"
-            val response = HttpClient.text(apiUrl, timeoutMs = 15000)
-            
-            val json = JSONObject(response)
-            val latestVersion = json.optString("tag_name", "").removePrefix("v")
-            val releaseNotes = json.optString("body", "")
-            val publishedAt = json.optString("published_at", "")
-            
-            // 查找 APK 下载链接
-            val assets = json.optJSONArray("assets")
-            var downloadUrl = ""
-            var fileSize = 0L
-            
-            if (assets != null) {
-                for (i in 0 until assets.length()) {
-                    val asset = assets.getJSONObject(i)
-                    val name = asset.optString("name", "")
-                    
-                    // 查找 release APK
-                    if (name.endsWith(".apk") && name.contains("release", ignoreCase = true)) {
-                        downloadUrl = asset.optString("browser_download_url", "")
-                        fileSize = asset.optLong("size", 0)
-                        break
+    suspend fun findFastestProxy(testUrl: String, timeoutMs: Int = 4000): Int =
+        withContext(Dispatchers.IO) {
+            for ((i, proxy) in PROXY_LIST.withIndex()) {
+                val url = if (proxy.isEmpty()) testUrl else "$proxy$testUrl"
+                try {
+                    val conn = URL(url).openConnection() as HttpURLConnection
+                    conn.requestMethod = "HEAD"
+                    conn.connectTimeout = timeoutMs
+                    conn.readTimeout = timeoutMs
+                    conn.connect()
+                    val code = conn.responseCode
+                    conn.disconnect()
+                    if (code in 200..399) {
+                        Log.d(TAG, "代理探测命中: $proxy (index=$i, code=$code)")
+                        selectedProxyIndex = i
+                        return@withContext i
                     }
-                }
-                
-                // 如果没找到 release APK，使用第一个 APK
-                if (downloadUrl.isEmpty() && assets.length() > 0) {
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.getJSONObject(i)
-                        val name = asset.optString("name", "")
-                        if (name.endsWith(".apk")) {
-                            downloadUrl = asset.optString("browser_download_url", "")
-                            fileSize = asset.optLong("size", 0)
-                            break
-                        }
-                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "代理探测失败: ${proxy.ifEmpty { "直连" }} — ${e.message}")
                 }
             }
-            
-            // 获取当前应用版本
-            val currentVersion = getCurrentVersion()
-            
-            // 比较版本号
-            val hasUpdate = compareVersions(latestVersion, currentVersion) > 0
-            
-            UpdateInfo(
-                hasUpdate = hasUpdate,
-                latestVersion = latestVersion,
-                currentVersion = currentVersion,
-                releaseNotes = releaseNotes,
-                downloadUrl = downloadUrl,
-                fileSize = fileSize,
-                publishedAt = publishedAt
-            )
+            // 全部失败，保持默认
+            selectedProxyIndex
+        }
+
+    // ─── 版本检查 ──────────────────────────────────────────────────────────────
+
+    suspend fun checkUpdate(context: Context): UpdateInfo = withContext(Dispatchers.IO) {
+        val current = getAppVersion(context)
+        Log.d(TAG, "检查更新: 当前版本=$current")
+
+        val json = try {
+            val conn = URL(GITHUB_API).openConnection() as HttpURLConnection
+            conn.connectTimeout = 12000
+            conn.readTimeout = 12000
+            conn.setRequestProperty("Accept", "application/vnd.github+json")
+            conn.setRequestProperty("User-Agent", "TVBox/$current")
+            if (conn.responseCode != 200) throw Exception("HTTP ${conn.responseCode}")
+            conn.inputStream.bufferedReader().readText().also { conn.disconnect() }
         } catch (e: Exception) {
-            Logger.d(msg = "检查更新失败: ${e.message}", t = e)
-            UpdateInfo(hasUpdate = false)
+            throw Exception("无法连接到 GitHub API：${e.message}")
         }
-    }
-    
-    /**
-     * 下载并安装更新
-     * 
-     * @param updateInfo 更新信息
-     * @return 下载任务 ID
-     */
-    fun downloadAndInstall(updateInfo: UpdateInfo): Long {
-        if (updateInfo.downloadUrl.isEmpty()) {
-            throw IllegalArgumentException("下载链接为空")
-        }
-        
-        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        
-        // 下载目标路径
-        val fileName = "TVBoxAndroid_${updateInfo.latestVersion}.apk"
-        val destination = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
-            fileName
+
+        val release = Gson().fromJson(json, ReleaseInfo::class.java)
+        val latest = release.tagName.trimStart('v', 'V')
+        val hasUpdate = compareVersions(latest, current) > 0
+
+        val apkAsset = release.assets
+            .firstOrNull { it.name.contains("release", ignoreCase = true) && it.name.endsWith(".apk") }
+            ?: release.assets.firstOrNull { it.name.endsWith(".apk") }
+
+        Log.d(TAG, "最新版=$latest 有更新=$hasUpdate APK=${apkAsset?.name}")
+
+        UpdateInfo(
+            hasUpdate = hasUpdate,
+            currentVersion = current,
+            latestVersion = latest,
+            releaseNotes = release.body,
+            downloadUrl = apkAsset?.downloadUrl ?: "",
+            fileSize = apkAsset?.size ?: 0L,
+            publishedAt = release.publishedAt
         )
-        
-        // 如果文件已存在，先删除
-        if (destination.exists()) {
-            destination.delete()
-        }
-        
-        // 创建下载请求
-        val request = DownloadManager.Request(Uri.parse(updateInfo.downloadUrl)).apply {
-            setTitle("夜帧影视更新")
-            setDescription("正在下载 v${updateInfo.latestVersion}")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationUri(Uri.fromFile(destination))
-            setAllowedNetworkTypes(
-                DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE
-            )
-        }
-        
-        // 启动下载
-        val downloadId = downloadManager.enqueue(request)
-        
-        // 注册下载完成监听器
-        registerDownloadCompleteReceiver(downloadId, destination)
-        
-        return downloadId
     }
-    
+
+    // ─── 下载（带实时进度）────────────────────────────────────────────────────
+
     /**
-     * 注册下载完成广播接收器
+     * 下载 APK，支持多代理自动切换 + 实时进度回调
+     *
+     * @param onProgress (percent 0-100, downloadedMB, totalMB)
+     * @return 下载后的本地 File
      */
-    private fun registerDownloadCompleteReceiver(downloadId: Long, apkFile: File) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id == downloadId) {
-                    // 下载完成，触发安装
-                    installApk(apkFile)
-                    
-                    // 取消注册
-                    try {
-                        context.unregisterReceiver(this)
-                    } catch (e: Exception) {
-                        // 忽略重复取消注册的异常
-                    }
+    suspend fun downloadApk(
+        context: Context,
+        info: UpdateInfo,
+        destFile: File = defaultDestFile(context, info),
+        onProgress: (percent: Int, downloadedMb: Float, totalMb: Float) -> Unit = { _, _, _ -> }
+    ): File = withContext(Dispatchers.IO) {
+        if (info.downloadUrl.isEmpty()) throw Exception("下载链接为空")
+
+        // 代理尝试顺序：先用已选代理，再逐一回退
+        val proxyOrder = buildList {
+            add(selectedProxyIndex)
+            addAll(PROXY_LIST.indices.filter { it != selectedProxyIndex })
+        }
+
+        var lastException: Exception? = null
+        for (proxyIdx in proxyOrder) {
+            val url = proxyUrl(info.downloadUrl, proxyIdx)
+            val proxyName = PROXY_LIST[proxyIdx].ifEmpty { "直连" }
+            Log.d(TAG, "下载尝试[$proxyIdx] $proxyName: $url")
+            try {
+                downloadWithProgress(url, destFile) { bytes, total ->
+                    val mb = bytes / 1024f / 1024f
+                    val totalMb = if (total > 0) total / 1024f / 1024f else info.fileSize / 1024f / 1024f
+                    val pct = if (total > 0) (bytes * 100 / total).toInt() else
+                        if (info.fileSize > 0) (bytes * 100 / info.fileSize).toInt() else 0
+                    withContext(Dispatchers.Main) { onProgress(pct.coerceIn(0, 100), mb, totalMb) }
                 }
+                selectedProxyIndex = proxyIdx  // 记住本次成功的代理
+                return@withContext destFile
+            } catch (e: Exception) {
+                Log.w(TAG, "代理[$proxyIdx] 下载失败: ${e.message}")
+                lastException = e
+                if (destFile.exists()) destFile.delete()
             }
         }
-        
-        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        context.registerReceiver(receiver, filter)
+        throw lastException ?: Exception("所有代理均下载失败")
     }
-    
-    /**
-     * 安装 APK
-     */
-    private fun installApk(apkFile: File) {
-        if (!apkFile.exists()) {
-            Logger.d(msg = "APK 文件不存在: ${apkFile.absolutePath}")
-            return
+
+    private suspend fun downloadWithProgress(
+        url: String,
+        dest: File,
+        onBytes: suspend (downloaded: Long, total: Long) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        dest.parentFile?.mkdirs()
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.connectTimeout = 15000
+        conn.readTimeout = 30000
+        conn.setRequestProperty("User-Agent", "TVBox/1.0")
+
+        // 断点续传
+        if (dest.exists() && dest.length() > 0) {
+            conn.setRequestProperty("Range", "bytes=${dest.length()}-")
         }
-        
-        val intent = Intent(Intent.ACTION_VIEW)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        
+        conn.connect()
+        val code = conn.responseCode
+        if (code != 200 && code != 206) throw Exception("HTTP $code")
+
+        val contentLen = conn.contentLengthLong
+        val total = if (code == 206) dest.length() + contentLen else contentLen
+
+        val inp = conn.inputStream
+        val out = FileOutputStream(dest, code == 206)
+        val buf = ByteArray(65536)
+        var downloaded = if (code == 206) dest.length() else 0L
+        var lastPct = -1
+
+        while (true) {
+            val read = inp.read(buf)
+            if (read == -1) break
+            out.write(buf, 0, read)
+            downloaded += read
+            val pct = if (total > 0) (downloaded * 100 / total).toInt() else 0
+            if (pct != lastPct) {
+                lastPct = pct
+                onBytes(downloaded, total)
+            }
+        }
+        out.flush(); out.close(); inp.close(); conn.disconnect()
+    }
+
+    // ─── 安装 ──────────────────────────────────────────────────────────────────
+
+    fun installApk(context: Context, apkFile: File) {
+        if (!apkFile.exists()) { Log.e(TAG, "APK 不存在: ${apkFile.absolutePath}"); return }
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // Android 7.0+ 需要使用 FileProvider
-            val apkUri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                apkFile
+            val uri = FileProvider.getUriForFile(
+                context, "${context.packageName}.fileprovider", apkFile
             )
-            intent.setDataAndType(apkUri, "application/vnd.android.package-archive")
+            intent.setDataAndType(uri, "application/vnd.android.package-archive")
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } else {
             intent.setDataAndType(Uri.fromFile(apkFile), "application/vnd.android.package-archive")
         }
-        
         context.startActivity(intent)
     }
-    
-    /**
-     * 获取当前应用版本
-     */
-    private fun getCurrentVersion(): String {
-        return try {
-            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            packageInfo.versionName ?: "1.0.0"
-        } catch (e: Exception) {
-            "1.0.0"
+
+    // ─── 工具方法 ──────────────────────────────────────────────────────────────
+
+    fun getAppVersion(context: Context): String = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.0.0"
+    } catch (_: Exception) { "0.0.0" }
+
+    fun compareVersions(a: String, b: String): Int {
+        val pa = a.trim().split(".").map { it.toIntOrNull() ?: 0 }
+        val pb = b.trim().split(".").map { it.toIntOrNull() ?: 0 }
+        for (i in 0 until maxOf(pa.size, pb.size)) {
+            val diff = pa.getOrElse(i) { 0 } - pb.getOrElse(i) { 0 }
+            if (diff != 0) return diff
         }
-    }
-    
-    /**
-     * 比较版本号（语义化版本）
-     * 
-     * @return 正数: v1 > v2, 0: v1 == v2, 负数: v1 < v2
-     */
-    private fun compareVersions(v1: String, v2: String): Int {
-        val parts1 = v1.split(".").map { it.toIntOrNull() ?: 0 }
-        val parts2 = v2.split(".").map { it.toIntOrNull() ?: 0 }
-        
-        val maxLength = maxOf(parts1.size, parts2.size)
-        
-        for (i in 0 until maxLength) {
-            val p1 = parts1.getOrNull(i) ?: 0
-            val p2 = parts2.getOrNull(i) ?: 0
-            
-            if (p1 != p2) {
-                return p1 - p2
-            }
-        }
-        
         return 0
     }
-    
-    /**
-     * 格式化文件大小
-     */
-    fun formatFileSize(bytes: Long): String {
-        return when {
-            bytes < 1024 -> "$bytes B"
-            bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024.0)
-            else -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
-        }
+
+    fun formatSize(bytes: Long): String = when {
+        bytes <= 0 -> "-"
+        bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024.0)
+        else -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
+    }
+
+    fun formatDate(iso: String): String = iso.substringBefore("T").ifEmpty { iso }
+
+    fun defaultDestFile(context: Context, info: UpdateInfo): File {
+        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
+        return File(dir, "TVBoxAndroid-v${info.latestVersion}-release.apk")
     }
 }
