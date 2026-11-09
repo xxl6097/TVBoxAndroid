@@ -900,10 +900,17 @@ class WebdavActivity : AppCompatActivity() {
         val server = WebdavPairServer(this)
         pairServer = server
 
-        // 检查能否拿到本机 IP
+        // 先绑定端口，再获取 URL（port 必须先于 pairUrl 赋值）
+        if (!server.bindPort()) {
+            Toast.makeText(this, "端口 8788~8798 被占用，请稍后再试", Toast.LENGTH_LONG).show()
+            pairServer = null
+            return
+        }
         val pairUrl = server.pairUrl()
         if (pairUrl == null) {
-            Toast.makeText(this, "无法获取 Wi-Fi IP，请确认已连接 Wi-Fi", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "无法获取本机 IP，请确认已连接网络", Toast.LENGTH_LONG).show()
+            pairServer?.stop()
+            pairServer = null
             return
         }
 

@@ -53,14 +53,32 @@ class WebdavPairServer(private val context: Context) {
 
     /** 获取 TV 在当前 Wi-Fi 下的 IPv4 地址 */
     fun getLocalIp(): String? {
-        return try {
+        // 方式1: WifiManager（真机 Wi-Fi 环境）
+        try {
             val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             val ip = wm.connectionInfo?.ipAddress ?: 0
-            if (ip == 0) return null
-            "%d.%d.%d.%d".format(ip and 0xFF, (ip shr 8) and 0xFF, (ip shr 16) and 0xFF, (ip shr 24) and 0xFF)
-        } catch (e: Exception) {
-            null
-        }
+            if (ip != 0) {
+                return "%d.%d.%d.%d".format(ip and 0xFF, (ip shr 8) and 0xFF, (ip shr 16) and 0xFF, (ip shr 24) and 0xFF)
+            }
+        } catch (_: Exception) {}
+        // 方式2: NetworkInterface 遍历（模拟器/以太网/热点场景）
+        try {
+            val ifaces = java.net.NetworkInterface.getNetworkInterfaces()
+            while (ifaces.hasMoreElements()) {
+                val iface = ifaces.nextElement()
+                if (!iface.isUp || iface.isLoopback) continue
+                val addrs = iface.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
+                    if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) {
+                        val ip = addr.hostAddress ?: continue
+                        if (ip.startsWith("192.") || ip.startsWith("10.") || ip.startsWith("172.") || ip.startsWith("127."))
+                            return ip
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return null
     }
 
     /** 配对页 URL（编到二维码里） */
@@ -70,24 +88,40 @@ class WebdavPairServer(private val context: Context) {
     }
 
     /**
-     * 启动服务（挂起函数，在 IO 线程运行，直到收到一次有效 POST 或 [stop] 被调用）
+     * 同步绑定端口（在调用 pairUrl() 之前必须先调用此方法）
+     * @return true=绑定成功
+     */
+    fun bindPort(): Boolean {
+        if (serverSocket != null) return true  // 已绑定
+        try {
+            var ss: ServerSocket? = null
+            for (p in 8788..8798) {
+                try {
+                    ss = ServerSocket(p)
+                    break
+                } catch (_: Exception) {}
+            }
+            if (ss == null) {
+                Log.e(TAG, "找不到可用端口 8788~8798")
+                return false
+            }
+            serverSocket = ss
+            port = ss.localPort
+            Log.d(TAG, "PairServer 端口绑定成功 port=$port token=$token")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "端口绑定失败: ${e.message}")
+            return false
+        }
+    }
+
+    /**
+     * 启动 HTTP 服务（挂起函数，在 IO 线程运行，直到收到一次有效 POST 或 [stop] 被调用）
+     * 调用前必须先 [bindPort]
      */
     suspend fun start() = withContext(Dispatchers.IO) {
-        // 找一个空闲端口
-        var ss: ServerSocket? = null
-        for (p in 8788..8798) {
-            try {
-                ss = ServerSocket(p)
-                break
-            } catch (_: Exception) {}
-        }
-        if (ss == null) {
-            Log.e(TAG, "找不到可用端口 8788~8798")
-            return@withContext
-        }
-        serverSocket = ss
-        port = ss.localPort
-        Log.d(TAG, "PairServer 启动 port=$port token=$token")
+        val ss = serverSocket ?: return@withContext
+        if (port == 0) return@withContext
 
         try {
             while (!done) {

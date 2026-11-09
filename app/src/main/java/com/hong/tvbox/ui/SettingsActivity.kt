@@ -1181,9 +1181,16 @@ class SettingsActivity : AppCompatActivity() {
         val server = WebdavPairServer(this)
         wdPairServer = server
 
+        if (!server.bindPort()) {
+            Toast.makeText(this, "端口 8788~8798 被占用，请稍后再试", Toast.LENGTH_LONG).show()
+            wdPairServer = null
+            return
+        }
         val pairUrl = server.pairUrl()
         if (pairUrl == null) {
-            Toast.makeText(this, "无法获取 Wi-Fi IP，请确认已连接 Wi-Fi", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "无法获取本机 IP，请确认已连接网络", Toast.LENGTH_LONG).show()
+            wdPairServer?.stop()
+            wdPairServer = null
             return
         }
 
@@ -1206,8 +1213,7 @@ class SettingsActivity : AppCompatActivity() {
         })
 
         container.addView(TextView(this).apply {
-            text = "用手机扫一扫
-在手机上填写 WebDAV 地址/账号/密码"
+            text = "用手机扫一扫\n在手机上填写 WebDAV 地址/账号/密码"
             textSize = 14f
             setTextColor(TvUi.SUB)
             gravity = Gravity.CENTER
