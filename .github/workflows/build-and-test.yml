@@ -35,7 +35,7 @@ jobs:
       - name: Build Release APK
         run: |
           ./gradlew assembleRelease -x lint --no-daemon \
-            -PKEYSTORE_PATH=debug.keystore \
+            -PKEYSTORE_PATH=$GITHUB_WORKSPACE/debug.keystore \
             -PKEYSTORE_PASSWORD=android \
             -PKEY_ALIAS=androiddebugkey \
             -PKEY_PASSWORD=android
