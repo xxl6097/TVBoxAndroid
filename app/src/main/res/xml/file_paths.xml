@@ -1,12 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- 外部文件目录 - 用于存储下载的 APK -->
+    <!-- 外部文件目录：getExternalFilesDir(DIRECTORY_DOWNLOADS) 返回的是 .../files/Downloads/ -->
     <external-files-path
         name="downloads"
-        path="Download/" />
-    
-    <!-- 缓存目录 -->
-    <external-cache-path
+        path="Downloads/" />
+
+    <!-- 宽泛匹配：覆盖外部文件目录的任意子路径 -->
+    <external-files-path
+        name="external_files"
+        path="." />
+
+    <!-- 缓存目录备选 -->
+    <cache-path
         name="cache"
+        path="." />
+    <external-cache-path
+        name="external_cache"
         path="." />
 </paths>

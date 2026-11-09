@@ -31,6 +31,8 @@ class PlayerActivity : AppCompatActivity() {
 
     private lateinit var playerView: PlayerView
     private var player: ExoPlayer? = null
+    /** 直播换台时临时保留旧 Player，待新 Player 出首帧后再释放（消除闪黑） */
+    private var prevPlayer: ExoPlayer? = null
     private lateinit var historyStore: HistoryStore
     private lateinit var configStore: ConfigStore
 
@@ -105,6 +107,9 @@ class PlayerActivity : AppCompatActivity() {
     // UI 控件
     private lateinit var loadingView: View
     private lateinit var errorView: View
+    private lateinit var loadingText: TextView
+    private lateinit var bufferingOverlay: android.widget.FrameLayout
+    private lateinit var bufferingText: TextView
     private lateinit var errorText: TextView
     private lateinit var osdView: View
     private lateinit var osdTitle: TextView
@@ -115,6 +120,7 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var osdPlayPauseBtn: Button
     private lateinit var osdNextBtn: Button
     private lateinit var osdRetryBtn: Button
+    private lateinit var osdSwitchLineBtn: Button
     private lateinit var osdVia: TextView
     private lateinit var osdMuteBtn: Button
     private lateinit var osdQualityBtn: Button
@@ -125,9 +131,13 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var osdTimerBtn: TextView
     /** 画面正中的一次性提示（±10 秒 / 音量 / 切集），3 米外也看得清 */
     private lateinit var centerTip: TextView
+    /** 播放结束提示层 */
+    private lateinit var endedView: LinearLayout
 
     private var isMuted = false
     private var volumeBeforeMute = 1.0f
+    /** 是否已播放完成 */
+    private var isEnded = false
 
     // ---- 定时关闭 ----
     private val timerOptions = intArrayOf(0, 15, 30, 45, 60, 90, 120) // 分钟，0=不关
@@ -286,7 +296,7 @@ class PlayerActivity : AppCompatActivity() {
         loadingLayout.addView(progressBar, LinearLayout.LayoutParams(dp(52), dp(52)).also {
             it.gravity = android.view.Gravity.CENTER
         })
-        val loadingText = TextView(this).apply {
+        loadingText = TextView(this).apply {
             text = "正在解析播放地址…"
             textSize = 18f
             setTextColor(Color.parseColor("#B3FFFFFF"))
@@ -296,6 +306,42 @@ class PlayerActivity : AppCompatActivity() {
         loadingLayout.addView(loadingText)
         loadingView = loadingLayout
         root.addView(loadingView, android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+
+        // 缓冲中遮罩：切集/切线路时叠在视频上，不遮满屏（背景透明），
+        // 只在角落显示菊花 + 文字，用户知道在加载但不会黑屏断视觉
+        bufferingOverlay = android.widget.FrameLayout(this).apply {
+            visibility = View.GONE
+        }
+        val bufSpinner = ProgressBar(this).apply {
+            setPadding(0, 0, dp(8), 0)
+        }
+        bufferingText = TextView(this).apply {
+            text = "缓冲中…"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#99000000"))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        val bufRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#99000000"))
+            setPadding(dp(12), dp(8), dp(16), dp(8))
+        }
+        bufRow.addView(bufSpinner, LinearLayout.LayoutParams(dp(28), dp(28)))
+        bufRow.addView(bufferingText, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.marginStart = dp(8) })
+        bufferingOverlay.addView(bufRow, android.widget.FrameLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.START
+        ).also { it.bottomMargin = dp(60); it.leftMargin = dp(24) })
+        root.addView(bufferingOverlay, android.widget.FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
@@ -313,11 +359,37 @@ class PlayerActivity : AppCompatActivity() {
             gravity = android.view.Gravity.CENTER
         }
         errorLayout.addView(errorText)
+        // 按钮行容器(横向排列"重试"与"换线路")
+        val errorBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+        }
         osdRetryBtn = Button(this).apply {
             text = "重试"
             setOnClickListener { retry() }
         }
-        errorLayout.addView(osdRetryBtn, LinearLayout.LayoutParams(
+        errorBtnRow.addView(osdRetryBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.marginEnd = dp(16) })
+        
+        osdSwitchLineBtn = Button(this).apply {
+            text = if (isLiveMode) "换台" else "换线路"
+            visibility = View.GONE  // 默认隐藏,showError 时按场景决定
+            setOnClickListener { 
+                if (isLiveMode && currentEpisodeIndex + 1 < allEpisodes.size) {
+                    switchEpisode(1)  // 直播:换下一台
+                } else if (!isLiveMode && allEpisodes.size > 1) {
+                    showTip("换线路功能待实现")  // 点播:TODO 换线路逻辑
+                }
+            }
+        }
+        errorBtnRow.addView(osdSwitchLineBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        
+        errorLayout.addView(errorBtnRow, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).also { it.topMargin = dp(20); it.gravity = android.view.Gravity.CENTER })
@@ -460,6 +532,44 @@ class PlayerActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM
+        ))
+
+        // ============ 播放结束提示层 ============
+        // 播完了黑屏什么都看不见，用户不知道该干什么——给出明确引导
+        val endedLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#CC000000"))
+            visibility = View.GONE
+            setPadding(dp(40), dp(40), dp(40), dp(40))
+        }
+        val endedIcon = TextView(this).apply {
+            text = "✓"
+            textSize = 60f
+            setTextColor(Color.parseColor("#FFEB3B"))
+            gravity = android.view.Gravity.CENTER
+        }
+        endedLayout.addView(endedIcon)
+        val endedMsg = TextView(this).apply {
+            text = "播放完毕"
+            textSize = 24f
+            setTextColor(Color.WHITE)
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, dp(12), 0, dp(24))
+        }
+        endedLayout.addView(endedMsg)
+        // 操作按钮行（ID 保留，稍后动态添加按钮）
+        val endedBtnsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            id = View.generateViewId()
+        }
+        endedLayout.addView(endedBtnsRow)
+
+        endedView = endedLayout
+        root.addView(endedLayout, android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
         setContentView(root)
@@ -897,6 +1007,10 @@ class PlayerActivity : AppCompatActivity() {
                             // 真的播起来了才重置自动换线标记，否则失败→换线→失败会无限循环
                             autoSwitched = false
                             loadingView.visibility = View.GONE
+                            if (this@PlayerActivity::bufferingOverlay.isInitialized) bufferingOverlay.visibility = View.GONE
+                            // 直播无缝切换：新 Player 已就绪，此时才释放旧 Player
+                            prevPlayer?.release()
+                            prevPlayer = null
                             // 续播定位：优先用调用方传入的位置，其次读本地历史
                             // 直播没有“看到哪”的概念，跳过
                             val target = when {
@@ -929,8 +1043,17 @@ class PlayerActivity : AppCompatActivity() {
                         Player.STATE_BUFFERING -> {
                             isBuffering = true
                             // 这是「播放中的卡顿」，不是起播缓冲：起播时 isPrepared 还是 false
-                            if (isPrepared) noteRebuffer()
-                            loadingView.visibility = if (isPrepared) View.GONE else View.VISIBLE
+                            if (isPrepared) {
+                                noteRebuffer()
+                                // 播放中卡顿：只显示角落缓冲提示，不遮全屏
+                                if (this@PlayerActivity::bufferingOverlay.isInitialized) {
+                                    bufferingOverlay.visibility = View.VISIBLE
+                                    bufferingText.text = "缓冲中…"
+                                }
+                            } else {
+                                // 起播缓冲：显示全屏加载页
+                                loadingView.visibility = View.VISIBLE
+                            }
                         }
                         Player.STATE_ENDED -> {
                             isPlaying = false
@@ -1104,12 +1227,21 @@ class PlayerActivity : AppCompatActivity() {
         savePosition()
 
         currentEpisodeIndex = newIndex
-        player?.release()
-        player = null
+        if (isLiveMode) {
+            // 直播换台：先保留旧画面，新 Player ready 后再切换（消除闪黑）
+            prevPlayer?.release()
+            prevPlayer = player
+            player = null
+        } else {
+            player?.release()
+            player = null
+        }
         isPrepared = false
         isPlaying = false
 
         val episode = allEpisodes[currentEpisodeIndex]
+        val tipText = if (isLiveMode) "正在切换频道…" else "正在切换到第${currentEpisodeIndex + 1}集…"
+        loadingText.text = tipText
         Toast.makeText(this, "第${currentEpisodeIndex + 1}集 ${episode.name}", Toast.LENGTH_SHORT).show()
 
         startPlayback()
@@ -1121,6 +1253,7 @@ class PlayerActivity : AppCompatActivity() {
         isPrepared = false
         isPlaying = false
         errorView.visibility = View.GONE
+        loadingText.text = "正在重新解析播放地址…"
         startPlayback()
     }
 
@@ -1156,9 +1289,87 @@ class PlayerActivity : AppCompatActivity() {
         osdView.visibility = View.GONE
     }
 
+    /**
+     * 播放完毕提示层：给出明确的下一步操作，不让用户对着黑屏发呆。
+     * 按钮按场景动态生成：有下一集就给「下一集」，直播给「下一台」。
+     */
+    private fun showEndedView() {
+        if (!this::endedView.isInitialized) return
+        isEnded = true
+        hideOsd()
+        hideSkipButton()
+
+        val btnRow = endedView.getChildAt(2) as? LinearLayout ?: return
+        btnRow.removeAllViews()
+
+        val hasNext = currentEpisodeIndex + 1 < allEpisodes.size
+
+        // 下一集 / 下一台：主操作，放最左且高亮，默认焦点
+        var firstBtn: Button? = null
+        if (hasNext) {
+            val nextBtn = Button(this).apply {
+                text = if (isLiveMode) "▶ 下一台" else "▶ 下一集"
+                textSize = 17f
+                setPadding(dp(22), dp(12), dp(22), dp(12))
+                setOnClickListener {
+                    endedView.visibility = View.GONE
+                    isEnded = false
+                    switchEpisode(1)
+                }
+                onTvFocus(scale = 1.06f)
+            }
+            btnRow.addView(nextBtn, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.marginEnd = dp(16) })
+            firstBtn = nextBtn
+        }
+
+        // 重播
+        val replayBtn = Button(this).apply {
+            text = "⟳ 重播"
+            textSize = 17f
+            setPadding(dp(22), dp(12), dp(22), dp(12))
+            setOnClickListener {
+                endedView.visibility = View.GONE
+                isEnded = false
+                pendingSeek = 0L
+                retry()
+            }
+            onTvFocus(scale = 1.06f)
+        }
+        btnRow.addView(replayBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.marginEnd = dp(16) })
+        if (firstBtn == null) firstBtn = replayBtn
+
+        // 返回列表
+        val backToListBtn = Button(this).apply {
+            text = "← 返回列表"
+            textSize = 17f
+            setPadding(dp(22), dp(12), dp(22), dp(12))
+            setOnClickListener { finish() }
+            onTvFocus(scale = 1.06f)
+        }
+        btnRow.addView(backToListBtn)
+
+        // 文案：最后一集 / 中间集，提示不一样
+        (endedView.getChildAt(1) as? TextView)?.text = when {
+            isLiveMode -> "当前频道已结束"
+            hasNext -> "本集播放完毕"
+            else -> "全部播放完毕"
+        }
+
+        endedView.visibility = View.VISIBLE
+        // 焦点给主操作按钮，遥控器确认键直接生效
+        firstBtn?.post { firstBtn.requestFocus() }
+    }
+
     private fun showError(msg: String) {
         loadingView.visibility = View.GONE
         osdView.visibility = View.GONE
+        if (this::endedView.isInitialized) endedView.visibility = View.GONE
         // 根据错误信息给出可操作的提示
         val (title, suggestion) = when {
             msg.contains("不是视频") || msg.contains("UnrecognizedInputFormat") ->
@@ -1173,6 +1384,15 @@ class PlayerActivity : AppCompatActivity() {
                 msg to "重试或换线路"
         }
         errorText.text = "播放失败：$title\n\n💡 $suggestion"
+        // 直播或多集场景才显示"换线路"/"换台"按钮
+        if (this::osdSwitchLineBtn.isInitialized) {
+            osdSwitchLineBtn.visibility = if (isLiveMode || allEpisodes.size > 1) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+            osdSwitchLineBtn.text = if (isLiveMode) "换台" else "换线路"
+        }
         errorView.visibility = View.VISIBLE
     }
 
@@ -1198,6 +1418,7 @@ class PlayerActivity : AppCompatActivity() {
         savePosition()
         handler.removeCallbacksAndMessages(null)
         player?.release()
+        prevPlayer?.release()
         player = null
     }
 

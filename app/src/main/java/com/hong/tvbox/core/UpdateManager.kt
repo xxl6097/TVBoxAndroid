@@ -209,42 +209,90 @@ object UpdateManager {
         conn.connectTimeout = 15000
         conn.readTimeout = 30000
         conn.setRequestProperty("User-Agent", "TVBox/1.0")
+        conn.instanceFollowRedirects = true
 
-        // 断点续传
-        if (dest.exists() && dest.length() > 0) {
+        // 断点续传：只在文件非空且看起来有效时启用（避免代理上次返回 HTML 错误页，本次续传出损坏 APK）
+        val resumeFrom = if (dest.exists() && dest.length() > 1024 && isApkValid(dest)) {
             conn.setRequestProperty("Range", "bytes=${dest.length()}-")
+            dest.length()
+        } else {
+            dest.delete()
+            0L
         }
+
         conn.connect()
         val code = conn.responseCode
         if (code != 200 && code != 206) throw Exception("HTTP $code")
 
+        // 检查服务端返回的内容类型：代理有时会返回 HTML 错误页
+        val contentType = conn.contentType ?: ""
+        if (contentType.contains("text/html", ignoreCase = true)) {
+            conn.disconnect()
+            throw Exception("代理返回了 HTML 内容而非 APK（contentType=$contentType），可能代理服务异常")
+        }
+
         val contentLen = conn.contentLengthLong
-        val total = if (code == 206) dest.length() + contentLen else contentLen
+        val total = if (code == 206) resumeFrom + contentLen else contentLen
 
         val inp = conn.inputStream
         val out = FileOutputStream(dest, code == 206)
         val buf = ByteArray(65536)
-        var downloaded = if (code == 206) dest.length() else 0L
+        var downloaded = if (code == 206) resumeFrom else 0L
         var lastPct = -1
 
-        while (true) {
-            val read = inp.read(buf)
-            if (read == -1) break
-            out.write(buf, 0, read)
-            downloaded += read
-            val pct = if (total > 0) (downloaded * 100 / total).toInt() else 0
-            if (pct != lastPct) {
-                lastPct = pct
-                onBytes(downloaded, total)
+        try {
+            while (true) {
+                val read = inp.read(buf)
+                if (read == -1) break
+                out.write(buf, 0, read)
+                downloaded += read
+                val pct = if (total > 0) (downloaded * 100 / total).toInt() else 0
+                if (pct != lastPct) {
+                    lastPct = pct
+                    onBytes(downloaded, total)
+                }
             }
+            out.flush()
+        } finally {
+            out.close()
+            inp.close()
+            conn.disconnect()
         }
-        out.flush(); out.close(); inp.close(); conn.disconnect()
+
+        // 下载完成后校验 APK 格式（APK 本质是 ZIP，文件头必须是 PK\x03\x04）
+        if (!isApkValid(dest)) {
+            dest.delete()
+            throw Exception("下载的文件不是有效的 APK（文件头校验失败），可能代理返回了错误内容")
+        }
+    }
+
+    /**
+     * 简单校验 APK 文件是否有效：APK 是 ZIP 格式，文件头前 4 字节必须是 50 4B 03 04
+     * 若代理返回了 HTML 错误页，文件头会是 3C 21 44 4F（<!DO...）
+     */
+    private fun isApkValid(file: File): Boolean {
+        if (!file.exists() || file.length() < 4) return false
+        return try {
+            val header = ByteArray(4)
+            file.inputStream().use { it.read(header) }
+            header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() &&
+                    header[2] == 0x03.toByte() && header[3] == 0x04.toByte()
+        } catch (_: Exception) {
+            false
+        }
     }
 
     // ─── 安装 ──────────────────────────────────────────────────────────────────
 
     fun installApk(context: Context, apkFile: File) {
         if (!apkFile.exists()) { Log.e(TAG, "APK 不存在: ${apkFile.absolutePath}"); return }
+        if (!isApkValid(apkFile)) {
+            Log.e(TAG, "APK 文件无效（不是有效 ZIP/APK 格式）: ${apkFile.absolutePath} (${apkFile.length()} bytes)")
+            android.widget.Toast.makeText(context, "下载的文件损坏，请重新下载", android.widget.Toast.LENGTH_LONG).show()
+            apkFile.delete()
+            return
+        }
+        Log.d(TAG, "安装 APK: ${apkFile.name} (${apkFile.length() / 1024}KB) valid=true")
 
         // Android 8.0+ 需要先检查「安装未知应用」权限，没有则跳转设置页授权
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
