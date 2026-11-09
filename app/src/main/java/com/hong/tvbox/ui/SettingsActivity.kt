@@ -229,19 +229,30 @@ class SettingsActivity : AppCompatActivity() {
         col.addView(groupLabel("播放源"))
         val card = cardGroup()
         val subUrl = configStore.getSubscribeUrl() ?: ""
-        card.addView(sRow("订阅", if (subUrl.isNotEmpty()) "已订阅" else "未订阅", arrow = true) {
-            showInputDialog("订阅", "粘贴订阅链接或 TVBox JSON（点播 + 直播一起更新）", subUrl) { importSubscription(it) }
-        })
+        
+        // 订阅 - 带二维码按钮
+        card.addView(sRowQr("订阅", if (subUrl.isNotEmpty()) "已订阅" else "未订阅",
+            onEdit = { showInputDialog("订阅", "粘贴订阅链接或 TVBox JSON（点播 + 直播一起更新）", subUrl) { importSubscription(it) } },
+            onQr = { showQrForField("subscribe") }
+        ))
         card.addView(sDiv())
-        card.addView(sRow("点播配置", cfgState(), arrow = true) {
-            showInputDialog("点播配置", "粘贴配置 JSON 或 URL", configStore.getConfigJson() ?: "") { importConfig(it) }
-        })
+        
+        // 点播配置 - 带二维码按钮
+        card.addView(sRowQr("点播配置", cfgState(),
+            onEdit = { showInputDialog("点播配置", "粘贴配置 JSON 或 URL", configStore.getConfigJson() ?: "") { importConfig(it) } },
+            onQr = { showQrForField("vod_config") }
+        ))
         card.addView(sDiv())
-        card.addView(sRow("直播源", currentLiveName(), arrow = true) {
-            showInputDialog("直播源", "粘贴 m3u / txt 直播源地址", configStore.getLiveSourceUrl() ?: "") { saveLiveSource(it) }
-        })
+        
+        // 直播源 - 带二维码按钮
+        card.addView(sRowQr("直播源", currentLiveName(),
+            onEdit = { showInputDialog("直播源", "粘贴 m3u / txt 直播源地址", configStore.getLiveSourceUrl() ?: "") { saveLiveSource(it) } },
+            onQr = { showQrForField("live") }
+        ))
         card.addView(sDiv())
-        card.addView(sRow("扫码录入", "手机扫码填地址", arrow = true) { showQrEntry() })
+        
+        // 扫码录入（保留原有的三框合一入口）
+        card.addView(sRow("扫码录入", "手机扫码填地址", arrow = true) { showQrForField("config") })
 
         // 订阅直播源候选列表（可展开）
         val presets = configStore.getSubLives()
@@ -989,6 +1000,91 @@ class SettingsActivity : AppCompatActivity() {
 
     // ==================== 扫码录入 ====================
 
+    /**
+     * 带二维码按钮的设置行
+     */
+    private fun sRowQr(label: String, value: String, onEdit: () -> Unit, onQr: () -> Unit): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val mainRow = sRow(label, value, arrow = true) { onEdit() }
+        row.addView(mainRow, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        val qrBtn = android.widget.TextView(this).apply {
+            text = "📷"
+            textSize = 22f
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(10), dp(14), dp(16), dp(14))
+            isClickable = true
+            isFocusable = true
+            contentDescription = "扫码录入$label"
+            setOnClickListener { onQr() }
+            onTvFocus(scale = 1.15f)
+        }
+        row.addView(qrBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.MATCH_PARENT
+        ))
+        return row
+    }
+
+    /**
+     * 弹出单字段二维码对话框
+     * @param fieldMode QrServer 的 mode：subscribe / live / vod_config / sub_live / config
+     */
+    private fun showQrForField(fieldMode: String) {
+        qrServer?.stop(); qrServer = null
+        val server = com.hong.tvbox.core.QrServer(8788, fieldMode) { form ->
+            runOnUiThread { applyQrForm(form) }
+        }
+        if (!server.start()) {
+            android.widget.Toast.makeText(this, "端口 8788 被占用，请稍后再试", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        qrServer = server
+        val url = server.url()
+        val qr = com.hong.tvbox.core.QrCode.encode(url, 520)
+        val title = when (fieldMode) {
+            "subscribe"  -> "扫码录入订阅链接"
+            "live"       -> "扫码录入直播源"
+            "vod_config" -> "扫码录入点播配置"
+            "sub_live"   -> "扫码添加订阅直播源"
+            else          -> "扫码录入（全字段）"
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20), dp(16), dp(20), dp(8))
+        }
+        val img = android.widget.ImageView(this).apply {
+            setImageBitmap(qr)
+            if (qr == null) setBackgroundColor(android.graphics.Color.WHITE)
+        }
+        box.addView(img, LinearLayout.LayoutParams(dp(260), dp(260)))
+        box.addView(android.widget.TextView(this).apply {
+            text = url
+            textSize = 12f
+            setTextColor(android.graphics.Color.WHITE)
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(2))
+        })
+        box.addView(android.widget.TextView(this).apply {
+            text = "手机与电视连同一 Wi-Fi，扫码后填写内容，提交即生效。\n关闭本窗口后服务立即停止。"
+            textSize = 12f
+            setTextColor(0xB3FFFFFF.toInt())
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, dp(6), 0, dp(8))
+        })
+        qrDialog?.dismiss()
+        qrDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(box)
+            .setNegativeButton("关闭") { _, _ -> qrServer?.stop(); qrServer = null }
+            .setOnDismissListener { qrServer?.stop(); qrServer = null }
+            .create()
+        qrDialog?.show()
+    }
+
     private fun showQrEntry() {
         val server = qrServer ?: com.hong.tvbox.core.QrServer(8788) { form ->
             runOnUiThread { applyQrForm(form) }
@@ -1039,12 +1135,26 @@ class SettingsActivity : AppCompatActivity() {
         val subscribe = form["subscribe"].orEmpty()
         val live = form["live"].orEmpty()
         val config = form["config"].orEmpty()
-        if (subscribe.isNotEmpty()) importSubscription(subscribe)
-        if (live.isNotEmpty()) saveLiveSource(live)
-        if (config.isNotEmpty()) importConfig(config)
-        if (subscribe.isEmpty() && live.isEmpty() && config.isEmpty()) {
-            Toast.makeText(this, "手机端没有填写内容", Toast.LENGTH_SHORT).show()
+        val subLive = form["sub_live"].orEmpty()
+        var handled = false
+        if (subscribe.isNotEmpty()) { importSubscription(subscribe); handled = true }
+        if (live.isNotEmpty()) { saveLiveSource(live); handled = true }
+        if (config.isNotEmpty()) { importConfig(config); handled = true }
+        if (subLive.isNotEmpty()) {
+            val existing = configStore.getSubLives().toMutableList()
+            if (existing.none { it.url == subLive }) {
+                val name = subLive.substringAfterLast('/').substringBefore('?')
+                    .ifEmpty { "直播源 ${existing.size + 1}" }
+                existing.add(com.hong.tvbox.core.LiveSource(name = name, url = subLive))
+                configStore.saveSubLives(existing)
+                Toast.makeText(this, "已添加：$name", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "该直播源已在列表中", Toast.LENGTH_SHORT).show()
+            }
+            handled = true
+            switchNav("source")
         }
+        if (!handled) Toast.makeText(this, "手机端没有填写内容", Toast.LENGTH_SHORT).show()
     }
 
     // ==================== 网盘源编辑 ====================
