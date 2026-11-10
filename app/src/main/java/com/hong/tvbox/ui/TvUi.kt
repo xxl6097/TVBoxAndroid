@@ -50,6 +50,12 @@ fun View.onTvFocus(
     childIconTint: Int = TvUi.SELECTED
 ) {
     isFocusable = true
+    isFocusableInTouchMode = false
+
+    // 子 ViewGroup 不接收焦点，让卡片本身作为焦点单元
+    if (this is ViewGroup) {
+        descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+    }
 
     val d = resources.displayMetrics.density
 
@@ -95,6 +101,10 @@ fun View.onTvFocus(
                 .scaleY(if (hasFocus) scale else 1f)
                 .setDuration(120)
                 .start()
+        }
+        // 聚焦时自动请求父级 ScrollView / HorizontalScrollView 将本 View 滚入可视区域
+        if (hasFocus) {
+            v.parent?.requestChildFocus(v, v)
         }
     }
 

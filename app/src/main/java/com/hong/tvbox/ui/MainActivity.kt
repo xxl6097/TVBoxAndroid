@@ -120,12 +120,16 @@ class MainActivity : AppCompatActivity() {
             // 容器自己不接收焦点，否则方向键只会滚动页面、焦点永远落不到卡片上
             isFocusable = false
             isFocusableInTouchMode = false
+            // 保证子 View 拿到焦点后，ScrollView 自动把它滚进可见区域
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         }
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(6), 0, dp(24))
         }
         scroll.addView(content)
+        // 增强 ScrollView 焦点跟踪（防止上/下键只滚页面、焦点无响应）
+        FocusNavigationHelper.enhanceScrollViewFocusTracking(scroll)
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
@@ -372,12 +376,15 @@ class MainActivity : AppCompatActivity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(6), dp(6), dp(6), dp(6))
+            isFocusable = true
+            isFocusableInTouchMode = false
         }
 
         val cover = FrameLayout(this)
         val img = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(Color.parseColor("#2A272E"))
+            isFocusable = false
         }
         cover.addView(img, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(112)
@@ -392,6 +399,7 @@ class MainActivity : AppCompatActivity() {
                 ((h.position * 1000) / h.duration).toInt().coerceIn(0, 1000)
             } else 0
             visibility = if (h.duration > 0 && h.position > 0) View.VISIBLE else View.GONE
+            isFocusable = false
         }
         cover.addView(bar, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(4), Gravity.BOTTOM
@@ -403,6 +411,7 @@ class MainActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             setBackgroundColor(Color.parseColor("#B3000000"))
+            isFocusable = true
             setOnClickListener {
                 Feedback.tap(this@MainActivity)
                 removeHistory(h)
@@ -414,7 +423,7 @@ class MainActivity : AppCompatActivity() {
         })
         card.addView(cover, LinearLayout.LayoutParams(dp(196), dp(112)))
 
-        card.addView(elided(h.vodName, 13f, TvUi.TEXT).apply { setPadding(0, dp(6), 0, 0) })
+        card.addView(elided(h.vodName, 13f, TvUi.TEXT).apply { setPadding(0, dp(6), 0, 0); isFocusable = false })
 
         // 副标题：第几集 · 看到多久 / 相对时间。
         // 网盘/直连记录的剧集名和片名相同，直接展示会重复成两行一样的字
@@ -428,7 +437,7 @@ class MainActivity : AppCompatActivity() {
         }
         val ago = ago(h.updatedAt)
         if (ago.isNotEmpty()) metaParts.add(ago)
-        card.addView(elided(metaParts.joinToString(" · "), 11f, TvUi.DIM))
+        card.addView(elided(metaParts.joinToString(" · "), 11f, TvUi.DIM).apply { isFocusable = false })
 
         card.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -506,6 +515,8 @@ class MainActivity : AppCompatActivity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
+            isFocusable = true
+            isFocusableInTouchMode = false
         }
 
         // 海报：FrameLayout 包圆角图 + NEW 角标
@@ -521,6 +532,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             elevation = dp(2).toFloat()
+            isFocusable = false
         }
         imgBox.addView(img, android.widget.FrameLayout.LayoutParams(dp(132), dp(186)))
         if (vod.pic.isNotEmpty()) {
@@ -538,6 +550,7 @@ class MainActivity : AppCompatActivity() {
                 setBackgroundColor(Color.parseColor("#E53935"))
                 setPadding(dp(3), dp(2), dp(3), dp(2))
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
+                isFocusable = false
             }, android.widget.FrameLayout.LayoutParams(
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -551,9 +564,12 @@ class MainActivity : AppCompatActivity() {
         card.addView(elided(vod.name, 13f, Color.WHITE).apply {
             setPadding(0, dp(6), 0, 0)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+            isFocusable = false
         })
         if (vod.remark.isNotEmpty()) {
-            card.addView(elided(vod.remark, 11f, TvUi.DIM))
+            card.addView(elided(vod.remark, 11f, TvUi.DIM).apply {
+                isFocusable = false
+            })
         }
 
         card.layoutParams = LinearLayout.LayoutParams(
@@ -620,14 +636,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hScroller(row: LinearLayout): View {
-        return HorizontalScrollView(this).apply {
+        val scrollView = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             clipToPadding = false
+            // 横向滚动条本身不接收焦点，让子卡片直接接收
+            isFocusable = false
+            isFocusableInTouchMode = false
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
             addView(row)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
+        // 启用遥控器焦点导航：方向键左/右在卡片间移动，上/下跳出到纵向
+        FocusNavigationHelper.enableFocusNavigation(scrollView, row)
+        return scrollView
     }
 
     private fun guideBlock(hasConfig: Boolean): View {
