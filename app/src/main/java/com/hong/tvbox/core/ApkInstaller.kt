@@ -83,13 +83,13 @@ object ApkInstaller {
         val errors = mutableListOf<String>()
 
         val attempts = listOf(
-            Attempt("content+INSTALL_PACKAGE") { launchWithContent(context, file, true) },
+            // 优先级 1：file:// 公共路径（Downloads）— 小米盒子必须走这条
+            Attempt("file+VIEW") { launchWithFile(context, file, false) },
+            Attempt("file+INSTALL_PACKAGE") { launchWithFile(context, file, true) },
+            // 优先级 2：content:// + FileProvider — 其他 ROM 可用
             Attempt("content+VIEW") { launchWithContent(context, file, false) },
-            // file:// 兜底会覆盖前面的 content://，且私有目录安装器读不到，直接删除
-            // Attempt("file+INSTALL_PACKAGE") { launchWithFile(context, file, true) },
-            // Attempt("file+VIEW") { launchWithFile(context, file, false) },
-            // 最强兜底：走系统 PackageInstaller 会话，不经过「安装器」界面，
-            // 因此不存在 ActivityNotFoundException —— 盒子上几乎必成。
+            Attempt("content+INSTALL_PACKAGE") { launchWithContent(context, file, true) },
+            // 优先级 3：PackageInstaller Session — Android 8+ 备用，MIUI TV 不支持
             Attempt("PackageInstaller 会话") { installViaSession(context, file) }
         )
 

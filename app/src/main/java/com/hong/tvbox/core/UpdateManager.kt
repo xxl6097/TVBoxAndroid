@@ -450,14 +450,25 @@ object UpdateManager {
     /**
      * 下载落点。
      *
-     * 放 `cacheDir/apk/` 而不是外部存储：应用私有目录**不需要任何存储权限**，
-     * FileProvider 也必定能暴露给系统安装器。
-     * 电视盒子（尤其小米盒子 Android 6）的外置存储经常出现
-     * "路径可写但安装器读不到"的情况，正是旧版安装闪退的根源之一。
+     * 小米盒子 Android 6（MIUI TV）的 PackageInstaller 只支持 `file://` 安装，
+     * 且 content:// 和 PackageInstaller Session 均被 MIUI 策略拒绝。
+     * 因此 APK **必须**落到公共可读路径（如 `Environment.DIRECTORY_DOWNLOADS`），
+     * 才能让 `file://` 路径让安装器读到。
+     *
+     * 若外部存储不可用（极少数情况），则降级到 cacheDir（届时 content:// 是唯一希望）。
      */
     fun defaultDestFile(context: Context, info: UpdateInfo): File {
+        val fileName = "TVBoxAndroid-v${info.latestVersion}-release.apk"
+        // 优先写到 Downloads 公共目录：file:// 安装器可以访问，不需要 FileProvider
+        val dlDir = android.os.Environment.getExternalStoragePublicDirectory(
+            android.os.Environment.DIRECTORY_DOWNLOADS
+        )
+        if (dlDir != null && (dlDir.exists() || dlDir.mkdirs())) {
+            return File(dlDir, fileName)
+        }
+        // 降级到私有 cacheDir
         val dir = File(context.cacheDir, "apk")
         dir.mkdirs()
-        return File(dir, "TVBoxAndroid-v${info.latestVersion}-release.apk")
+        return File(dir, fileName)
     }
 }
