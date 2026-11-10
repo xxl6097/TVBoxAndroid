@@ -78,6 +78,11 @@ class MainActivity : AppCompatActivity() {
         configStore = ConfigStore(this)
         historyStore = HistoryStore(this)
 
+        // Android 6+ 运行时权限检查
+        if (!PermissionHelper.hasStoragePermission(this)) {
+            PermissionHelper.requestStoragePermission(this)
+        }
+
         if (configStore.isPrivacyAgreed()) {
             buildHome()
         } else {
@@ -734,5 +739,18 @@ class MainActivity : AppCompatActivity() {
         val m = (total % 3600) / 60
         val s = total % 60
         return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (PermissionHelper.isStorageGranted(requestCode, grantResults)) {
+            Toast.makeText(this, "存储权限已授予", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "未获得存储权限，APK 下载功能将不可用", Toast.LENGTH_LONG).show()
+        }
     }
 }

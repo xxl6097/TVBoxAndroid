@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.core.content.FileProvider
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import com.hong.tvbox.ui.PermissionHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -167,6 +168,13 @@ object UpdateManager {
         destFile: File = defaultDestFile(context, info),
         onProgress: (percent: Int, downloadedMb: Float, totalMb: Float) -> Unit = { _, _, _ -> }
     ): File = withContext(Dispatchers.IO) {
+        // Android 6+ 权限检查
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!PermissionHelper.hasStoragePermission(context)) {
+                throw Exception("没有存储权限，无法下载 APK。请在权限申请弹窗中允许存储权限。")
+            }
+        }
+
         if (info.downloadUrl.isEmpty()) throw Exception("下载链接为空")
 
         // 代理尝试顺序：先用已选代理，再逐一回退
