@@ -1,25 +1,31 @@
-name: Update Release Notes
+name: Sync Release Notes
 
-# 用途：单独更新某个已发布 Release 的正文，不重新构建、不改动 tag、不重新上传资产。
+# 用途：修改 .github/release-notes/<tag>.md 并 push 后，
+# 自动把内容同步到对应的 GitHub Release 正文。
+# 不改动 tag、不重新构建、不重新上传资产。
 #
-# 为什么需要它：本地 fine-grained PAT 只给了 Contents 写权限，
-# `gh release edit` 会 403 (Resource not accessible by personal access token)。
-# 而 CI 的 GITHUB_TOKEN 有 contents:write，可以正常改 Release。
+# 背景：本地 fine-grained PAT 只有 Contents 写权限，
+# `gh release edit` 和 `gh workflow run` 都会 403，
+# 只能借 CI 的 GITHUB_TOKEN（contents:write）来改 Release。
 #
-# 用法：
-#   gh workflow run "Update Release Notes" -f tag=v1.3.7
-# 正文来源：.github/release-notes/<tag>.md
+# 用法：编辑 .github/release-notes/v1.3.7.md 后提交推送即可。
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/release-notes/*.md'
+
+  # 也保留手动入口（在网页 Actions 页面点 Run workflow）
   workflow_dispatch:
     inputs:
       tag:
-        description: '要更新说明的 tag（如 v1.3.7）'
-        required: true
+        description: '要更新说明的 tag（如 v1.3.7；留空则同步全部）'
+        required: false
         type: string
 
 jobs:
-  update-notes:
+  sync:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -27,23 +33,40 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Check notes file exists
-        run: |
-          F=".github/release-notes/${{ inputs.tag }}.md"
-          if [ ! -f "$F" ]; then
-            echo "::error::找不到 $F，请先在 .github/release-notes/ 下创建该版本的说明文件"
-            exit 1
-          fi
-          echo "使用说明文件: $F"
-          echo "--- 前 10 行 ---"
-          head -10 "$F"
-
-      - name: Update release body
-        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag }}
-          name: "夜帧影视 ${{ inputs.tag }}"
-          body_path: .github/release-notes/${{ inputs.tag }}.md
-          # 不传 files：只更新正文，保留已上传的 APK 资产
-          fail_on_unmatched_files: false
+          fetch-depth: 2
+
+      - name: 找出本次变更的说明文件
+        id: changed
+        run: |
+          MANUAL="${{ inputs.tag }}"
+          if [ -n "$MANUAL" ]; then
+            echo "files=.github/release-notes/${MANUAL}.md" >> "$GITHUB_OUTPUT"
+            echo "手动指定: $MANUAL"
+          else
+            FILES=$(git diff --name-only HEAD^ HEAD -- '.github/release-notes/*.md' || true)
+            echo "files<<__EOF__" >> "$GITHUB_OUTPUT"
+            echo "$FILES" >> "$GITHUB_OUTPUT"
+            echo "__EOF__" >> "$GITHUB_OUTPUT"
+            echo "变更文件:"
+            echo "$FILES"
+          fi
+
+      - name: 同步到对应 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          ANY=0
+          for f in ${{ steps.changed.outputs.files }}; do
+            [ -f "$f" ] || continue
+            TAG=$(basename "$f" .md)
+            ANY=1
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release edit "$TAG" --notes-file "$f"
+              echo "✅ 已更新 $TAG 的 Release 正文"
+            else
+              echo "⏭ $TAG 尚无 Release，跳过（等 tag 构建时自动使用该说明）"
+            fi
+          done
+          if [ "$ANY" = "0" ]; then echo "没有需要同步的文件"; fi
