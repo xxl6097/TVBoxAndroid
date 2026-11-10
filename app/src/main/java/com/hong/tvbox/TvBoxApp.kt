@@ -3,6 +3,7 @@ package com.hong.tvbox
 import android.app.Application
 import android.content.Context
 import android.os.Build
+import com.hong.tvbox.ui.TouchFeedbackHelper
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -24,6 +25,9 @@ class TvBoxApp : Application() {
         appContext = this
         installCrashHandler(this)
         Feedback.init(this)
+
+        // 初始化触摸反馈系统（Android 6+ 需要提前初始化 Vibrator）
+        TouchFeedbackHelper.init(this)
     }
 
     companion object {
