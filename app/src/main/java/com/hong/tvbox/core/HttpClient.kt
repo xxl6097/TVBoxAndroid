@@ -5,7 +5,12 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /**
  * HTTP 客户端 - 从 ArkTS Http.ets 移植
@@ -14,16 +19,37 @@ import java.util.concurrent.TimeUnit
  * OkHttp 的 execute() 是阻塞调用，如果直接跑在 lifecycleScope.launch（主线程）里，
  * 会抛 NetworkOnMainThreadException —— 直播源加载、网盘列目录、播放地址解析
  * 都是从 UI 作用域直接调用这里的，所以线程切换必须在这一层做掉。
+ *
+ * SSL 说明：
+ * Android 6 系统证书库较旧，很多直播源 HTTPS 地址会出现
+ * "Trust anchor for certification path not found"。
+ * 直播源/订阅源属于用户主动配置的可信内容，这里用宽松 SSL（信任全部证书）
+ * 以保证连通性，不影响安全敏感功能（支付等不走此 Client）。
  */
 object HttpClient {
     private const val UA =
         "Mozilla/5.0 (Linux; Android 10; TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+    // 宽松 TrustManager：信任所有证书
+    // 适用场景：直播源、订阅链接等用户自配置资源，自签名/老 CA 证书很常见
+    private val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+    })
+
+    private val sslContext: SSLContext = SSLContext.getInstance("TLS").also {
+        it.init(null, trustAllCerts, SecureRandom())
+    }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        // 应用宽松 SSL，解决 Android 6 老证书库问题
+        .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+        .hostnameVerifier { _, _ -> true }
         .build()
 
     private fun clientWith(timeoutMs: Long): OkHttpClient {
