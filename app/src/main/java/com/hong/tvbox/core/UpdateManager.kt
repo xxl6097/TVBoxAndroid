@@ -267,12 +267,19 @@ object UpdateManager {
         throw lastError ?: Exception("所有代理均下载失败")
     }
 
+    /**
+     * 单次下载尝试。
+     *
+     * 显式写 `: Unit`：函数内部在 416 时会递归调用自己，
+     * 不写返回类型会让 Kotlin 的类型推断陷入循环
+     * （"Type checking has run into a recursive problem"）。
+     */
     private suspend fun downloadWithProgress(
         url: String,
         dest: File,
         allowResume: Boolean = true,
         onBytes: suspend (downloaded: Long, total: Long) -> Unit
-    ) = withContext(Dispatchers.IO) {
+    ): Unit = withContext(Dispatchers.IO) {
         dest.parentFile?.mkdirs()
         // LenientSsl：Android 6 的根证书库停在 2015 年，github.com 直连与
         // ghproxy.cn / gh-proxy.com 都会报 Trust anchor for certification path not found
