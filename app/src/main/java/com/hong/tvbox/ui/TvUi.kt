@@ -4,8 +4,11 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.TextView
+import androidx.core.graphics.drawable.DrawableCompat
 import com.hong.tvbox.core.GlideOptimizer
 
 /**
@@ -31,25 +34,25 @@ object TvUi {
 }
 
 /**
- * 给任意 View 加上“焦点高亮 + 轻微放大”。
+ * 给任意 View 加上"焦点高亮 + 轻微放大 + 子 View 颜色联动"。
  *
- * @param normalColor 未聚焦时的底色
- * @param focusColor  聚焦时的底色
- * @param scale       聚焦缩放倍数（列表卡片 1.06，胶囊按钮保持 1.0 以免相邻元素重叠）
+ * @param normalColor     未聚焦时的底色
+ * @param focusColor      聚焦时的底色
+ * @param scale           聚焦缩放倍数（列表卡片 1.06，胶囊按钮保持 1.0 以免相邻元素重叠）
+ * @param childTextColor  聚焦时子 TextView 的文字颜色（默认黄色 SELECTED）
+ * @param childIconTint   聚焦时子 ImageView 的图标着色（默认黄色 SELECTED）
  */
 fun View.onTvFocus(
     normalColor: Int = TvUi.CARD,
     focusColor: Int = TvUi.CARD_HI,
-    scale: Float = 1.06f
+    scale: Float = 1.06f,
+    childTextColor: Int = TvUi.SELECTED,
+    childIconTint: Int = TvUi.SELECTED
 ) {
     isFocusable = true
-    // 不要设 isFocusableInTouchMode：触摸模式下第一次点击只会把焦点移过去而不触发点击，
-    // 手机上表现为"要点两下"。TV 走非触摸模式，方向键聚焦不受影响。
 
     val d = resources.displayMetrics.density
 
-    // 只用底色深浅区分焦点在电视上几乎看不出来（隔着 3 米），
-    // 必须加一圈高对比描边，用户才知道遥控器现在指着谁
     fun bg(color: Int, focused: Boolean) = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = 10f * d
@@ -57,10 +60,35 @@ fun View.onTvFocus(
         if (focused) setStroke((2.5f * d).toInt(), TvUi.SELECTED)
     }
 
+    // 递归更新所有子 TextView / ImageView 的颜色
+    fun applyChildColors(root: View, focused: Boolean) {
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                applyChildColors(root.getChildAt(i), focused)
+            }
+        }
+        when (root) {
+            is TextView -> root.setTextColor(
+                if (focused) childTextColor else TvUi.TEXT
+            )
+            is ImageView -> {
+                val drawable = root.drawable ?: return
+                val wrapped = DrawableCompat.wrap(drawable.mutate())
+                DrawableCompat.setTint(
+                    wrapped,
+                    if (focused) childIconTint else Color.WHITE
+                )
+                root.setImageDrawable(wrapped)
+            }
+        }
+    }
+
     background = bg(normalColor, false)
 
     setOnFocusChangeListener { v, hasFocus ->
         v.background = bg(if (hasFocus) focusColor else normalColor, hasFocus)
+        // 子 View 颜色联动
+        applyChildColors(v, hasFocus)
         if (scale != 1f) {
             v.animate()
                 .scaleX(if (hasFocus) scale else 1f)
@@ -70,13 +98,17 @@ fun View.onTvFocus(
         }
     }
 
-    // 部分盒子把遥控器当鼠标设备上报 hover（MotionEvent），一并接住。
-    // 注意 setOnHoverListener 的回调签名是 (View, MotionEvent) -> Boolean，不是布尔入参。
     setOnHoverListener { v, event ->
         if (!v.hasFocus()) {
             when (event.actionMasked) {
-                MotionEvent.ACTION_HOVER_ENTER -> v.background = bg(focusColor, true)
-                MotionEvent.ACTION_HOVER_EXIT -> v.background = bg(normalColor, false)
+                MotionEvent.ACTION_HOVER_ENTER -> {
+                    v.background = bg(focusColor, true)
+                    applyChildColors(v, true)
+                }
+                MotionEvent.ACTION_HOVER_EXIT -> {
+                    v.background = bg(normalColor, false)
+                    applyChildColors(v, false)
+                }
             }
         }
         false

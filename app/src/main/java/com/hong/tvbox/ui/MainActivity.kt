@@ -245,7 +245,8 @@ class MainActivity : AppCompatActivity() {
                 Feedback.tap(this@MainActivity)
                 onClick()
             }
-            onTvFocus(normalColor = Color.TRANSPARENT, focusColor = 0x33FFFFFF.toInt(), scale = 1.1f)
+            // 平时不显示背景（透明），焦点时显示完整高亮：黄框 + 子 View 文字/图标变黄
+            onTvFocus(normalColor = Color.TRANSPARENT, focusColor = 0x33FFEB3B.toInt(), scale = 1.0f)
         }
         cell.addView(ImageView(this).apply {
             setImageResource(funcIcon(label))

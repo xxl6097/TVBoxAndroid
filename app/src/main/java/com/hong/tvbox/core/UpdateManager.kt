@@ -325,7 +325,12 @@ object UpdateManager {
         }
 
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            // 不要加 FLAG_ACTIVITY_NEW_TASK：在某些 ROM 上会让当前 Activity 被系统回收，
+            // 导致安装器弹出来的同时 App 直接退出。
+            // 安装器是系统 Dialog 形式，不需要切换 Task。
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK  // 旧版本 Uri.fromFile 路径必须新 Task
+            }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val uri = FileProvider.getUriForFile(
