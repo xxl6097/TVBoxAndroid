@@ -1,0 +1,49 @@
+name: Update Release Notes
+
+# 用途：单独更新某个已发布 Release 的正文，不重新构建、不改动 tag、不重新上传资产。
+#
+# 为什么需要它：本地 fine-grained PAT 只给了 Contents 写权限，
+# `gh release edit` 会 403 (Resource not accessible by personal access token)。
+# 而 CI 的 GITHUB_TOKEN 有 contents:write，可以正常改 Release。
+#
+# 用法：
+#   gh workflow run "Update Release Notes" -f tag=v1.3.7
+# 正文来源：.github/release-notes/<tag>.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要更新说明的 tag（如 v1.3.7）'
+        required: true
+        type: string
+
+jobs:
+  update-notes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check notes file exists
+        run: |
+          F=".github/release-notes/${{ inputs.tag }}.md"
+          if [ ! -f "$F" ]; then
+            echo "::error::找不到 $F，请先在 .github/release-notes/ 下创建该版本的说明文件"
+            exit 1
+          fi
+          echo "使用说明文件: $F"
+          echo "--- 前 10 行 ---"
+          head -10 "$F"
+
+      - name: Update release body
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: "夜帧影视 ${{ inputs.tag }}"
+          body_path: .github/release-notes/${{ inputs.tag }}.md
+          # 不传 files：只更新正文，保留已上传的 APK 资产
+          fail_on_unmatched_files: false

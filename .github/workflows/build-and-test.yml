@@ -75,6 +75,47 @@ jobs:
           path: app/build/outputs/apk/release/TVBoxAndroid-*.apk
           retention-days: 30
 
+      # 生成 Release 正文：
+      #   1. 优先读 .github/release-notes/<tag>.md —— 手写的版本说明，内容丰富
+      #   2. 没有则退回「上一个 tag 到本 tag 的提交列表」，至少能看到改了什么
+      - name: Generate release body
+        id: notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          FILE=".github/release-notes/${TAG}.md"
+          {
+            echo "body<<__NOTES_EOF__"
+            if [ -f "$FILE" ]; then
+              echo "<!-- 来源: $FILE -->"
+              cat "$FILE"
+            else
+              echo "## 夜帧影视 ${TAG}"
+              echo ""
+              echo "**版本**: ${{ steps.version.outputs.version }}"
+              echo "**提交**: ${GITHUB_SHA}"
+              echo ""
+              echo "### 本版变更"
+              echo ""
+              PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+              if [ -n "$PREV" ]; then
+                echo '```'
+                git log --pretty=format:'- %s' "${PREV}..${TAG}" 2>/dev/null || true
+                echo '```'
+              else
+                echo "- 无历史 tag 可比对"
+              fi
+              echo ""
+              echo "### 安装方法"
+              echo "下载 \`TVBoxAndroid-*-release.apk\`（已签名，可直接安装）"
+              echo ""
+              echo "### 应用内更新"
+              echo "设置 → 关于 → 检查更新"
+            fi
+            echo "__NOTES_EOF__"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release body 来源: ${FILE}"
+
       # tag 推送时自动创建 GitHub Release 并上传 APK
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -82,19 +123,11 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: "夜帧影视 ${{ github.ref_name }}"
-          body: |
-            ## 夜帧影视 ${{ github.ref_name }}
-
-            **版本**: ${{ steps.version.outputs.version }}
-            **提交**: ${{ github.sha }}
-
-            ### 安装方法
-            下载 `TVBoxAndroid-*-release.apk`（已签名，可直接安装）
-
-            ### 应用内更新
-            设置 → 关于 → 检查更新
+          body: ${{ steps.notes.outputs.body }}
           draft: false
           prerelease: false
+          # 已存在同名 Release 时覆盖更新正文与资产，而不是静默跳过
+          overwrite_files: true
           files: |
             app/build/outputs/apk/release/TVBoxAndroid-*-release.apk
             app/build/outputs/apk/debug/TVBoxAndroid-*-debug.apk
