@@ -11,8 +11,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * GitHub Release 自动更新管理器
@@ -92,7 +90,9 @@ object UpdateManager {
             for ((i, proxy) in PROXY_LIST.withIndex()) {
                 val url = if (proxy.isEmpty()) testUrl else "$proxy$testUrl"
                 try {
-                    val conn = URL(url).openConnection() as HttpURLConnection
+                    // 必须走 LenientSsl：Android 6 上 github.com / ghproxy.cn 等
+                    // 会因系统根证书过期报 Trust anchor not found
+                    val conn = LenientSsl.open(url)
                     conn.requestMethod = "HEAD"
                     conn.connectTimeout = timeoutMs
                     conn.readTimeout = timeoutMs
@@ -119,7 +119,7 @@ object UpdateManager {
         Log.d(TAG, "检查更新: 当前版本=$current")
 
         val json = try {
-            val conn = URL(GITHUB_API).openConnection() as HttpURLConnection
+            val conn = LenientSsl.open(GITHUB_API)
             conn.connectTimeout = 12000
             conn.readTimeout = 12000
             conn.setRequestProperty("Accept", "application/vnd.github+json")
@@ -193,6 +193,27 @@ object UpdateManager {
 
         if (info.downloadUrl.isEmpty()) throw Exception("下载链接为空")
 
+        /**
+         * 本地已有完整且版本正确的包 → 直接复用。
+         *
+         * 两个好处：
+         * 1. 用户点过一次失败再点，不用重新下 3MB
+         * 2. 避免"完整文件 + Range 请求"必然触发的 HTTP 416
+         */
+        if (destFile.exists()) {
+            val v = ApkVerifier.verify(context, destFile, expectPackage = context.packageName)
+            val expect = info.latestVersion.trimStart('v', 'V')
+            if (v.ok && v.versionName == expect) {
+                Log.d(TAG, "本地已有完整安装包 v${v.versionName}，跳过下载")
+                return@withContext destFile
+            }
+            Log.d(
+                TAG,
+                "本地文件不可复用（${v.reason.ifEmpty { "版本不符：${v.versionName} ≠ $expect" }}），删除后重新下载"
+            )
+            destFile.delete()
+        }
+
         // 代理尝试顺序：先用已选代理，再逐一回退
         val proxyOrder = buildList {
             add(selectedProxyIndex)
@@ -249,17 +270,20 @@ object UpdateManager {
     private suspend fun downloadWithProgress(
         url: String,
         dest: File,
+        allowResume: Boolean = true,
         onBytes: suspend (downloaded: Long, total: Long) -> Unit
     ) = withContext(Dispatchers.IO) {
         dest.parentFile?.mkdirs()
-        val conn = URL(url).openConnection() as HttpURLConnection
+        // LenientSsl：Android 6 的根证书库停在 2015 年，github.com 直连与
+        // ghproxy.cn / gh-proxy.com 都会报 Trust anchor for certification path not found
+        val conn = LenientSsl.open(url)
         conn.connectTimeout = 15000
         conn.readTimeout = 30000
         conn.setRequestProperty("User-Agent", "TVBox/1.0")
         conn.instanceFollowRedirects = true
 
         // 断点续传：只在文件非空且看起来有效时启用（避免代理上次返回 HTML 错误页，本次续传出损坏 APK）
-        val resumeFrom = if (dest.exists() && dest.length() > 1024 && isApkValid(dest)) {
+        val resumeFrom = if (allowResume && dest.exists() && dest.length() > 1024 && isApkValid(dest)) {
             conn.setRequestProperty("Range", "bytes=${dest.length()}-")
             dest.length()
         } else {
@@ -269,7 +293,31 @@ object UpdateManager {
 
         conn.connect()
         val code = conn.responseCode
-        if (code != 200 && code != 206) throw Exception("HTTP $code")
+
+        /**
+         * HTTP 416 Range Not Satisfiable。
+         *
+         * 触发条件：本地残留文件长度 >= 远端文件长度，却还发了 Range 请求。
+         * 实测（小米盒子日志）：上次已经下到完整包，再次点更新时
+         *   `Range: bytes=3381185-` → 服务器直接 416，112ms 就返回。
+         * 旧代码把它当成普通失败，导致每次都白跑一轮代理。
+         *
+         * 正确做法：清掉本地文件，**不带 Range** 重新完整下载一次。
+         */
+        if (code == 416) {
+            conn.disconnect()
+            Log.w(TAG, "HTTP 416（本地文件 >= 远端），清空后重新完整下载")
+            dest.delete()
+            if (allowResume) {
+                return@withContext downloadWithProgress(url, dest, allowResume = false, onBytes = onBytes)
+            }
+            throw Exception("HTTP 416，服务器拒绝续传请求")
+        }
+
+        if (code != 200 && code != 206) {
+            conn.disconnect()
+            throw Exception("HTTP $code")
+        }
 
         // 检查服务端返回的内容类型：代理有时会返回 HTML 错误页
         val contentType = conn.contentType ?: ""

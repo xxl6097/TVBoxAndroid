@@ -8,8 +8,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * 简易下载管理器（原生 HttpURLConnection，无需 ExoPlayer DownloadService）
@@ -50,13 +48,23 @@ object DownloadManager {
 
         try {
             val destFile = getDestFile(context, title, url)
-            val conn = URL(url).openConnection() as HttpURLConnection
+            // LenientSsl：Android 6 根证书库陈旧，老 CA 的站点会直接 SSL 握手失败
+            val conn = LenientSsl.open(url)
             conn.connectTimeout = 15000; conn.readTimeout = 30000
             conn.setRequestProperty("User-Agent", "TVBox/1.2.0")
             if (destFile.exists() && destFile.length() > 0)
                 conn.setRequestProperty("Range", "bytes=${destFile.length()}-")
             conn.connect()
             val code = conn.responseCode
+            // 416：本地文件已 >= 远端大小（上次可能已下完），清空重来
+            if (code == 416) {
+                conn.disconnect()
+                destFile.delete()
+                task.status = Status.FAILED
+                task.errorMsg = "本地文件已完整（HTTP 416）"
+                withContext(Dispatchers.Main) { onError("该文件看起来已经下载完整了") }
+                return@withContext
+            }
             if (code != 200 && code != 206) throw Exception("HTTP $code")
             // ⚠️ 不能用 conn.contentLengthLong（API 24）：
             // Android 6 上抛 NoSuchMethodError(Error)，catch(Exception) 接不住 → 闪退
