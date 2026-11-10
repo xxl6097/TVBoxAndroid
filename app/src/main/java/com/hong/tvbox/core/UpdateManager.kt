@@ -214,6 +214,25 @@ object UpdateManager {
             destFile.delete()
         }
 
+        // 清理公共 Download 目录里的旧版本残留：
+        // 下载位置从 cacheDir 挪到公共 Downloads 后，旧版本的包会一直留在那里，
+        // 既占空间，也可能被误当成可复用文件。只删本应用的升级包。
+        try {
+            val dlDir = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS
+            )
+            val prefix = context.packageName
+            dlDir?.listFiles()?.forEach { f ->
+                if (f.isFile && f.name.startsWith(prefix) && f.name.endsWith(".apk") &&
+                    f.name != destFile.name
+                ) {
+                    if (f.delete()) Log.d(TAG, "清理旧安装包: ${f.name}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "清理旧安装包失败（不影响下载）: ${e.message}")
+        }
+
         // 代理尝试顺序：先用已选代理，再逐一回退
         val proxyOrder = buildList {
             add(selectedProxyIndex)

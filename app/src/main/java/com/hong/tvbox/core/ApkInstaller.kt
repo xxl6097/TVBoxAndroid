@@ -212,18 +212,33 @@ object ApkInstaller {
     // ─── 文件归置 ─────────────────────────────────────────────────────
 
     /**
-     * 确保 APK 落在 FileProvider 能暴露的目录。
+     * 确保 APK 落在安装器读得到的位置。
      *
-     * 外部文件目录（Android/data/.../files）虽然也在 file_paths 里，
-     * 但电视盒子上有两个坑：外置存储可能未挂载、MIUI 对私有目录读限制更严。
-     * 因此统一搬到 `cacheDir/apk/`：应用私有、无需任何存储权限、FileProvider 必定可读。
+     * ⚠️ v1.3.16 踩坑教训：小米盒子（MIUI TV）的 PackageInstaller 只认 `file://`，
+     * 而它（uid 10003）读不到我们的私有 cacheDir（uid 10041）。
+     * 之前这里**无条件**把 APK 复制回 cache 再装，等于把 v1.3.12 的坑又踩了一遍
+     * （下到公共目录 → 复制回私有 → 安装器 Permission denied →「检测安装包异常」）。
+     *
+     * 正确逻辑：
+     * - 文件已在公共存储（/storage/emulated/0/...、/sdcard/...）→ **直接返回原文件**，
+     *   PackageInstaller 的 gid 含 sdcard_rw，公共目录直接可读（本机实测通过）；
+     * - 仅当文件在私有目录且 content:// 也不可用时，才退到 cache 副本 + content://。
      */
     private fun ensureExposable(context: Context, apkFile: File): File {
-        val cacheRoot = File(context.cacheDir, "apk")
-        // 已经在 cacheDir 下则直接返回
-        if (apkFile.absolutePath.startsWith(context.cacheDir.absolutePath)) {
+        val path = apkFile.absolutePath
+        // 公共存储（含外部 SD）：安装器可读，绝不要再复制回私有目录
+        if (path.startsWith("/storage/emulated/") || path.startsWith("/sdcard/") ||
+            path.startsWith(android.os.Environment.getExternalStorageDirectory()?.absolutePath ?: "/sdcard/")
+        ) {
+            Log.d(TAG, "APK 已在公共存储，直接安装原文件: $path")
             return apkFile
         }
+        // 已经在 cacheDir 下则直接返回（走 content:// 路径）
+        if (path.startsWith(context.cacheDir.absolutePath)) {
+            return apkFile
+        }
+        // 其他位置（如内部 filesDir）：复制到 cache 供 FileProvider 暴露
+        val cacheRoot = File(context.cacheDir, "apk")
         cacheRoot.mkdirs()
         val dest = File(cacheRoot, apkFile.name)
         try {
