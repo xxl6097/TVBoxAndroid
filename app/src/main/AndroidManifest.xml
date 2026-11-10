@@ -114,5 +114,10 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- PackageInstaller 会话安装结果（Android 6 盒子上的兜底安装路径） -->
+        <receiver
+            android:name=".core.ApkInstallReceiver"
+            android:exported="false" />
+
     </application>
 </manifest>

@@ -1,12 +1,8 @@
 package com.hong.tvbox.core
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.util.Log
-import androidx.core.content.FileProvider
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.hong.tvbox.ui.PermissionHelper
@@ -168,10 +164,11 @@ object UpdateManager {
         destFile: File = defaultDestFile(context, info),
         onProgress: (percent: Int, downloadedMb: Float, totalMb: Float) -> Unit = { _, _, _ -> }
     ): File = withContext(Dispatchers.IO) {
-        // Android 6+ 权限检查
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        // 只有写到「外部存储」才需要存储权限；写到应用私有目录（cacheDir/filesDir）不需要。
+        // 默认落点已改为 cacheDir，因此正常情况下这里不会触发权限申请。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && isExternalPath(context, destFile)) {
             if (!PermissionHelper.hasStoragePermission(context)) {
-                throw Exception("没有存储权限，无法下载 APK。请在权限申请弹窗中允许存储权限。")
+                throw Exception("没有存储权限，无法写入下载目录。请允许存储权限后重试。")
             }
         }
 
@@ -292,56 +289,20 @@ object UpdateManager {
 
     // ─── 安装 ──────────────────────────────────────────────────────────────────
 
+    /**
+     * 安装 APK。
+     *
+     * 实际逻辑已抽到 [ApkInstaller]：FileProvider 优先 + 四级降级 + 全异常捕获。
+     * 这里保留原签名，内部只做参数校验与结果提示，**绝不抛异常**（避免闪退）。
+     */
     fun installApk(context: Context, apkFile: File) {
-        if (!apkFile.exists()) { Log.e(TAG, "APK 不存在: ${apkFile.absolutePath}"); return }
-        if (!isApkValid(apkFile)) {
-            Log.e(TAG, "APK 文件无效（不是有效 ZIP/APK 格式）: ${apkFile.absolutePath} (${apkFile.length()} bytes)")
-            android.widget.Toast.makeText(context, "下载的文件损坏，请重新下载", android.widget.Toast.LENGTH_LONG).show()
-            apkFile.delete()
-            return
-        }
-        Log.d(TAG, "安装 APK: ${apkFile.name} (${apkFile.length() / 1024}KB) valid=true")
-
-        // Android 8.0+ 需要先检查「安装未知应用」权限，没有则跳转设置页授权
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (!context.packageManager.canRequestPackageInstalls()) {
-                Log.w(TAG, "缺少 REQUEST_INSTALL_PACKAGES 权限，跳转授权页")
-                val settingsIntent = Intent(
-                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:${context.packageName}")
-                ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                try {
-                    context.startActivity(settingsIntent)
-                } catch (e: Exception) {
-                    // 部分设备不支持该 Intent，降级到应用详情页
-                    val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.parse("package:${context.packageName}")
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    context.startActivity(fallback)
-                }
-                return
-            }
-        }
-
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            // 不要加 FLAG_ACTIVITY_NEW_TASK：在某些 ROM 上会让当前 Activity 被系统回收，
-            // 导致安装器弹出来的同时 App 直接退出。
-            // 安装器是系统 Dialog 形式，不需要切换 Task。
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK  // 旧版本 Uri.fromFile 路径必须新 Task
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val uri = FileProvider.getUriForFile(
-                context, "${context.packageName}.fileprovider", apkFile
-            )
-            intent.setDataAndType(uri, "application/vnd.android.package-archive")
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val result = ApkInstaller.install(context, apkFile)
+        if (!result.ok) {
+            Log.e(TAG, "安装失败: ${result.message}\n${result.detail}")
+            // 失败时不清空文件：用户可以重试，或改用「导出 APK」手动安装
         } else {
-            intent.setDataAndType(Uri.fromFile(apkFile), "application/vnd.android.package-archive")
+            Log.d(TAG, "安装器已拉起: ${result.message}")
         }
-        context.startActivity(intent)
     }
 
     // ─── 工具方法 ──────────────────────────────────────────────────────────────
@@ -368,8 +329,25 @@ object UpdateManager {
 
     fun formatDate(iso: String): String = iso.substringBefore("T").ifEmpty { iso }
 
+    /** 判断目标文件是否位于外部存储（需要 WRITE_EXTERNAL_STORAGE） */
+    private fun isExternalPath(context: Context, file: File): Boolean {
+        val path = file.absolutePath
+        return !path.startsWith(context.filesDir.absolutePath) &&
+                !path.startsWith(context.cacheDir.absolutePath) &&
+                !path.startsWith(context.noBackupFilesDir.absolutePath)
+    }
+
+    /**
+     * 下载落点。
+     *
+     * 放 `cacheDir/apk/` 而不是外部存储：应用私有目录**不需要任何存储权限**，
+     * FileProvider 也必定能暴露给系统安装器。
+     * 电视盒子（尤其小米盒子 Android 6）的外置存储经常出现
+     * "路径可写但安装器读不到"的情况，正是旧版安装闪退的根源之一。
+     */
     fun defaultDestFile(context: Context, info: UpdateInfo): File {
-        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
+        val dir = File(context.cacheDir, "apk")
+        dir.mkdirs()
         return File(dir, "TVBoxAndroid-v${info.latestVersion}-release.apk")
     }
 }

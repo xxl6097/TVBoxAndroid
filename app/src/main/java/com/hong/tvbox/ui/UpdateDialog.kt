@@ -9,6 +9,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import com.hong.tvbox.core.ApkInstaller
 import com.hong.tvbox.core.UpdateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -231,17 +232,90 @@ class UpdateDialog(
         val msg = buildString {
             append("APK 已下载完成，点「立即安装」进行安装。\n\n")
             append("文件: ${apkFile.name}\n\n")
-            append("⚠️  如果点安装后没有反应，请在系统设置中开启\n「安装未知应用」权限后重试。")
+            append("⚠️  如果点安装后没有反应，请在系统设置中开启\n「安装未知来源应用」权限后重试。")
         }
         AlertDialog.Builder(context)
             .setTitle("下载完成")
             .setMessage(msg)
             .setPositiveButton("立即安装") { _, _ ->
-                UpdateManager.installApk(context, apkFile)
+                doInstall(apkFile)
             }
             .setNegativeButton("稍后安装", null)
             .setCancelable(true)
             .show()
+    }
+
+    /**
+     * 执行安装并按结果给反馈。
+     *
+     * 安装失败时不再静默 —— 电视盒子出问题用户很难描述，
+     * 直接把失败原因 + 四级尝试的异常摘要贴在对话框里，方便截图反馈。
+     */
+    private fun doInstall(apkFile: File) {
+        val result = try {
+            ApkInstaller.install(context, apkFile)
+        } catch (e: Throwable) {
+            // 双保险：ApkInstaller 内部已全捕获，这里兜住 OutOfMemory 之类的 Error
+            ApkInstaller.InstallResult(false, "安装过程异常：${e.javaClass.simpleName}", e.message ?: "")
+        }
+
+        if (result.ok) {
+            // 安装器已拉起，关掉对话框让用户看到系统安装界面
+            dialog?.dismiss()
+            downloadDialog?.dismiss()
+            return
+        }
+
+        val detail = buildString {
+            append(result.message)
+            if (result.detail.isNotEmpty()) {
+                append("\n\n技术细节：\n")
+                append(result.detail.take(500))
+            }
+        }
+
+        AlertDialog.Builder(context)
+            .setTitle("安装失败")
+            .setMessage(detail)
+            .setPositiveButton("去设置授权") { _, _ ->
+                if (!ApkInstaller.openInstallSettings(context)) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "无法打开设置页，请手动进入「设置 → 安全 → 安装未知来源应用」",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNeutralButton("打开所在目录") { _, _ ->
+                openApkFolder(apkFile)
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    /** 兜底：用文件管理器定位到 APK，让用户手动点安装 */
+    private fun openApkFolder(apkFile: File) {
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(
+                    androidx.core.content.FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", apkFile
+                    ),
+                    ApkInstaller.MIME_APK
+                )
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (context !is android.app.Activity) {
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(
+                context,
+                "APK 位于：${apkFile.absolutePath}",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     /**
