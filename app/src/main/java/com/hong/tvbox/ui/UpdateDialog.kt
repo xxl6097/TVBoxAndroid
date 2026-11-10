@@ -203,11 +203,17 @@ class UpdateDialog(
                 // 下载完成，弹出安装确认
                 showInstallConfirm(apkFile)
 
-            } catch (e: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
                 downloadDialog?.dismiss()
+                throw e
+            } catch (e: Throwable) {
+                // 必须用 Throwable：v1.3.4 的闪退就是 NoSuchMethodError（Error），
+                // catch(Exception) 接不住 → 协程把异常丢给默认 handler → 主线程 FATAL
+                downloadDialog?.dismiss()
+                val reason = e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
                 AlertDialog.Builder(context)
                     .setTitle("下载失败")
-                    .setMessage("无法下载更新:\n${e.message}\n\n请检查网络后重试。")
+                    .setMessage("无法下载更新:\n$reason\n\n请检查网络后重试。")
                     .setPositiveButton("确定", null)
                     .show()
             }

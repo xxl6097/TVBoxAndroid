@@ -47,10 +47,78 @@ jobs:
         run: ./gradlew testDebugUnitTest --no-daemon
         continue-on-error: true
 
+      # API 兼容性闸门：minSdk 21，任何 API 24+ 的调用（NewApi）都必须为 0
+      # v1.3.4 在 Android 6 盒子上闪退就是 getContentLengthLong(API 24) 没被发现
+      - name: Lint NewApi check (API 21 baseline)
+        run: ./gradlew lintDebug --no-daemon
+        continue-on-error: true
+
+      - name: Show NewApi violations
+        if: always()
+        run: |
+          REPORT=app/build/reports/lint-results-debug.txt
+          if [ -f "$REPORT" ]; then
+            echo "==== NewApi 相关 ===="
+            grep -i -A3 "NewApi" "$REPORT" || echo "无 NewApi 告警 ✅"
+          else
+            echo "未生成 lint 报告"
+            ls -la app/build/reports/ || true
+          fi
+
+      - name: Verify dex has no API-24 HttpURLConnection calls
+        if: always()
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          BT=$(ls "$SDK/build-tools" | sort -V | tail -1)
+          DEXDUMP="$SDK/build-tools/$BT/dexdump"
+          APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "$APK" ]; then echo "APK 不存在，跳过"; exit 0; fi
+          rm -rf /tmp/dexchk && mkdir -p /tmp/dexchk
+          unzip -o -q "$APK" 'classes*.dex' -d /tmp/dexchk || true
+          FOUND=0
+          for d in /tmp/dexchk/classes*.dex; do
+            [ -f "$d" ] || continue
+            if "$DEXDUMP" -d "$d" 2>/dev/null | grep -q "getContentLengthLong"; then
+              echo "❌ $(basename "$d") 中存在 getContentLengthLong（API 24）调用"
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" = "1" ]; then
+            echo "::error::检测到 API 24+ 调用，Android 6 (API 23) 会 NoSuchMethodError 闪退"
+            exit 1
+          fi
+          echo "✅ dex 中无 getContentLengthLong 调用"
+
       # 额外跑一次 release（未签名）只为验证 R8/ProGuard 规则没把东西裁坏，
       # 没有密钥时不签名是正常的，产物仅供体积参考
       - name: Build Release (R8 check, unsigned)
         run: ./gradlew assembleRelease --no-daemon
+
+      # 关键：发布的是 release 包，R8 可能把 API 24 调用折叠成库里的包装方法
+      # （v1.3.4 就是这样变成 androidx.media3.common.util.f.b 的），必须单独查 release dex
+      - name: Verify release dex (R8 output) has no API-24 calls
+        if: always()
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          BT=$(ls "$SDK/build-tools" | sort -V | tail -1)
+          DEXDUMP="$SDK/build-tools/$BT/dexdump"
+          APK="$GITHUB_WORKSPACE/app/build/outputs/apk/release/app-release-unsigned.apk"
+          if [ ! -f "$APK" ]; then echo "release APK 不存在，跳过"; exit 0; fi
+          rm -rf /tmp/dexrel && mkdir -p /tmp/dexrel
+          unzip -o -q "$APK" 'classes*.dex' -d /tmp/dexrel || true
+          FOUND=0
+          for d in /tmp/dexrel/classes*.dex; do
+            [ -f "$d" ] || continue
+            if "$DEXDUMP" -d "$d" 2>/dev/null | grep -q "getContentLengthLong"; then
+              echo "❌ $(basename "$d") 中存在 getContentLengthLong（API 24）调用"
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" = "1" ]; then
+            echo "::error::release dex 仍含 API 24 调用，Android 6 会闪退"
+            exit 1
+          fi
+          echo "✅ release dex 中无 getContentLengthLong 调用"
 
       # 未签名 release 也上传，供本地用固定密钥签名后安装到真机
       - name: Upload Release APK (unsigned)

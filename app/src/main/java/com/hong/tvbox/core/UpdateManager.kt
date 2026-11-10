@@ -6,6 +6,7 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.hong.tvbox.ui.PermissionHelper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -180,7 +181,7 @@ object UpdateManager {
             addAll(PROXY_LIST.indices.filter { it != selectedProxyIndex })
         }
 
-        var lastException: Exception? = null
+        var lastError: Throwable? = null
         for (proxyIdx in proxyOrder) {
             val url = proxyUrl(info.downloadUrl, proxyIdx)
             val proxyName = PROXY_LIST[proxyIdx].ifEmpty { "直连" }
@@ -195,13 +196,18 @@ object UpdateManager {
                 }
                 selectedProxyIndex = proxyIdx  // 记住本次成功的代理
                 return@withContext destFile
-            } catch (e: Exception) {
-                Log.w(TAG, "代理[$proxyIdx] 下载失败: ${e.message}")
-                lastException = e
+            } catch (e: CancellationException) {
+                // 协程取消必须原样抛出，不能当成"下载失败"继续试下一个代理
+                throw e
+            } catch (e: Throwable) {
+                // 用 Throwable 而不是 Exception：NoSuchMethodError / OutOfMemoryError 这类
+                // Error 不会被 Exception 接住，会直接冒到主线程变成闪退（v1.3.4 的真实事故）
+                Log.w(TAG, "代理[$proxyIdx] 下载失败: ${e.javaClass.simpleName} ${e.message}")
+                lastError = e
                 if (destFile.exists()) destFile.delete()
             }
         }
-        throw lastException ?: Exception("所有代理均下载失败")
+        throw lastError ?: Exception("所有代理均下载失败")
     }
 
     private suspend fun downloadWithProgress(
@@ -236,8 +242,10 @@ object UpdateManager {
             throw Exception("代理返回了 HTML 内容而非 APK（contentType=$contentType），可能代理服务异常")
         }
 
-        val contentLen = conn.contentLengthLong
-        val total = if (code == 206) resumeFrom + contentLen else contentLen
+        // ⚠️ 这里**不能**用 conn.contentLengthLong：它是 API 24 方法，
+        // Android 6 上抛 NoSuchMethodError(Error)，catch(Exception) 接不住 → 闪退。
+        // HttpCompat 用字符串头解析，兼容 API 21 且 206 时拿到的是文件总长。
+        val total = HttpCompat.resolveContentLength(conn, resumeFrom, code)
 
         val inp = conn.inputStream
         val out = FileOutputStream(dest, code == 206)

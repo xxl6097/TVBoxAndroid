@@ -3,6 +3,7 @@ package com.hong.tvbox.core
 import android.content.Context
 import android.os.Environment
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -57,11 +58,14 @@ object DownloadManager {
             conn.connect()
             val code = conn.responseCode
             if (code != 200 && code != 206) throw Exception("HTTP $code")
-            val total = conn.contentLengthLong
+            // ⚠️ 不能用 conn.contentLengthLong（API 24）：
+            // Android 6 上抛 NoSuchMethodError(Error)，catch(Exception) 接不住 → 闪退
+            val resumeFrom = if (code == 206) destFile.length() else 0L
+            val total = HttpCompat.resolveContentLength(conn, resumeFrom, code)
             val inp = conn.inputStream
             val out = FileOutputStream(destFile, code == 206)
             val buf = ByteArray(65536)
-            var downloaded = if (code == 206) destFile.length() else 0L
+            var downloaded = resumeFrom
             var read: Int
             while (inp.read(buf).also { read = it } != -1) {
                 if (task.status == Status.CANCELLED) { out.close(); inp.close(); return@withContext }
@@ -77,10 +81,14 @@ object DownloadManager {
             out.flush(); out.close(); inp.close()
             task.status = Status.COMPLETED; task.localPath = destFile.absolutePath
             withContext(Dispatchers.Main) { onDone(destFile.absolutePath) }
-        } catch (e: Exception) {
-            task.status = Status.FAILED; task.errorMsg = e.message ?: ""
-            Log.e(TAG, "下载失败: ${e.message}")
-            withContext(Dispatchers.Main) { onError(e.message ?: "下载失败") }
+        } catch (e: CancellationException) {
+            task.status = Status.CANCELLED
+            throw e
+        } catch (e: Throwable) {
+            // Throwable：Error（如 NoSuchMethodError）也必须兜住，否则冒到主线程就是闪退
+            task.status = Status.FAILED; task.errorMsg = e.message ?: e.javaClass.simpleName
+            Log.e(TAG, "下载失败: ${e.javaClass.simpleName} ${e.message}", e)
+            withContext(Dispatchers.Main) { onError(e.message ?: "下载失败（${e.javaClass.simpleName}）") }
         }
     }
 

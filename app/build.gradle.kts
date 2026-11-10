@@ -92,6 +92,22 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    /**
+     * Lint：把 NewApi 从警告提升为**错误**。
+     *
+     * v1.3.4 在小米盒子（Android 6 / API 23）上「立即更新」闪退，
+     * 根因是用了 `HttpURLConnection.getContentLengthLong()`（API 24）——
+     * 这种问题 Lint 本来能报（NewApi），但默认只是 warning，被淹没了。
+     * 这里设为 error，构建期强制拦住，避免老设备再踩。
+     */
+    lint {
+        error += "NewApi"
+        // 存量告警不阻断日常构建，但 NewApi 必须为 0
+        abortOnError = true
+        // 只查本项目源码；依赖库（media3 等）内部自带 API 分支，查了会误报
+        checkDependencies = false
+    }
 }
 
 dependencies {
