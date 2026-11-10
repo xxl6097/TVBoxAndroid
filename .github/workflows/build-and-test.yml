@@ -131,3 +131,24 @@ jobs:
           files: |
             app/build/outputs/apk/release/TVBoxAndroid-*-release.apk
             app/build/outputs/apk/debug/TVBoxAndroid-*-debug.apk
+
+      # 清理残留在本 Release 里的旧版本命名资产。
+      # 事故案例：v1.3.8 的 Release 里躺着 TVBoxAndroid-v1.3.7-release.apk，
+      # 客户端 checkUpdate 取第一个 apk 就会下到旧包 —— 装完版本不变 / 报解析错误。
+      - name: Prune stale assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "当前 tag: $TAG"
+          NAMES=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.assets[].name')
+          echo "现有资产:"; echo "$NAMES"
+          echo "$NAMES" | while IFS= read -r n; do
+            [ -z "$n" ] && continue
+            case "$n" in
+              *"$TAG"*) echo "✅ 保留 $n" ;;
+              *) echo "🗑 删除残留资产 $n"; gh release delete-asset "$TAG" "$n" -y || true ;;
+            esac
+          done
+          echo "清理后:"; gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.assets[].name'

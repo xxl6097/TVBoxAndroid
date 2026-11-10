@@ -134,11 +134,29 @@ object UpdateManager {
         val latest = release.tagName.trimStart('v', 'V')
         val hasUpdate = compareVersions(latest, current) > 0
 
-        val apkAsset = release.assets
-            .firstOrNull { it.name.contains("release", ignoreCase = true) && it.name.endsWith(".apk") }
-            ?: release.assets.firstOrNull { it.name.endsWith(".apk") }
+        /**
+         * 选包：**必须**优先匹配本版版本号。
+         *
+         * 曾经踩过的坑：Release 里残留了上一个版本命名的 APK
+         * （v1.3.8 的 Release 里放着 TVBoxAndroid-v1.3.7-release.apk），
+         * 而这里原来用 `firstOrNull` 取第一个 apk，结果下到了旧包 ——
+         * 用户装完版本没变、下次又提示更新，甚至因为 versionCode 不匹配报解析错误。
+         */
+        val apks = release.assets.filter { it.name.endsWith(".apk", ignoreCase = true) }
+        val apkAsset = apks.firstOrNull { it.name.contains("v$latest") && it.name.contains("release", true) }
+            ?: apks.firstOrNull { it.name.contains("v$latest") }
+            ?: apks.firstOrNull { it.name.contains("release", true) && !it.name.contains("debug", true) }
 
-        Log.d(TAG, "最新版=$latest 有更新=$hasUpdate APK=${apkAsset?.name}")
+        if (hasUpdate && apkAsset == null) {
+            // 有新版 tag 但没有对应的 APK：宁可明确报错，也不要拿旧包糊弄用户
+            throw Exception(
+                "v$latest 尚未上传对应的安装包" +
+                        if (apks.isEmpty()) "（该 Release 没有任何 APK）"
+                        else "（现有：${apks.joinToString("、") { it.name }}）"
+            )
+        }
+
+        Log.d(TAG, "最新版=$latest 有更新=$hasUpdate APK=${apkAsset?.name} 共${apks.size}个包")
 
         UpdateInfo(
             hasUpdate = hasUpdate,
@@ -194,6 +212,24 @@ object UpdateManager {
                         if (info.fileSize > 0) (bytes * 100 / info.fileSize).toInt() else 0
                     withContext(Dispatchers.Main) { onProgress(pct.coerceIn(0, 100), mb, totalMb) }
                 }
+
+                // ── 下载完必须做严格校验 ────────────────────────────
+                // 只看文件头 4 字节是不够的：连接被掐断时 read() 会返回 -1，
+                // 半个文件也能"通过"，用户点安装就是「解析包错误」。
+                val vr = ApkVerifier.verify(
+                    context = context,
+                    file = destFile,
+                    expectPackage = context.packageName,
+                    minVersionCode = currentVersionCode(context)
+                )
+                if (!vr.ok) {
+                    Log.w(TAG, "校验失败[${proxyName}]: ${vr.reason}")
+                    // 删掉半成品，下一个代理会重新完整下载（不带 Range，避免续传拼坏）
+                    destFile.delete()
+                    throw Exception("安装包校验失败：${vr.reason}")
+                }
+                Log.d(TAG, "校验通过: ${vr.packageName} ${vr.versionName} (${vr.versionCode})")
+
                 selectedProxyIndex = proxyIdx  // 记住本次成功的代理
                 return@withContext destFile
             } catch (e: CancellationException) {
@@ -318,6 +354,17 @@ object UpdateManager {
     fun getAppVersion(context: Context): String = try {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.0.0"
     } catch (_: Exception) { "0.0.0" }
+
+    /** 当前已安装的 versionCode —— 用来拦「下载到旧安装包」的情况 */
+    private fun currentVersionCode(context: Context): Long = try {
+        val pi = context.packageManager.getPackageInfo(context.packageName, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            pi.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            pi.versionCode.toLong()
+        }
+    } catch (_: Exception) { 0L }
 
     fun compareVersions(a: String, b: String): Int {
         val pa = a.trim().split(".").map { it.toIntOrNull() ?: 0 }

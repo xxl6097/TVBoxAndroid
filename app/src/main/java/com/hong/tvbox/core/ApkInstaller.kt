@@ -59,8 +59,16 @@ object ApkInstaller {
         if (apkFile.length() < 4096) {
             return InstallResult(false, "安装包不完整（${apkFile.length()} 字节）", apkFile.absolutePath)
         }
-        if (!isValidApk(apkFile)) {
-            return InstallResult(false, "下载的文件不是有效 APK（可能下载到错误页）", apkFile.absolutePath)
+        // 用 ApkVerifier 做严格校验：zip 完整 + 能解析出包名版本。
+        // 只查文件头 4 字节查不出"下载被截断"，那种包交给系统安装器就是「解析包错误」。
+        val vr = ApkVerifier.verify(context, apkFile, expectPackage = context.packageName)
+        if (!vr.ok) {
+            Log.e(TAG, "安装包校验失败: ${vr.reason}")
+            return InstallResult(
+                false,
+                "安装包不可用：${vr.reason}\n建议重新下载。",
+                apkFile.absolutePath
+            )
         }
 
         // ── 2. 归置到 FileProvider 可暴露的位置 ────────────────────────
