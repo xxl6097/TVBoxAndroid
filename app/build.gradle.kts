@@ -18,7 +18,7 @@ android {
             proc.waitFor()
             proc.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 80
         } catch (e: Exception) { 80 }
-        versionName = "1.3.2"
+        versionName = "1.3.3"
     }
 
     /**
